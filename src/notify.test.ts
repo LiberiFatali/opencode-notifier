@@ -17,8 +17,8 @@ describe("formatGhosttyNotificationSequence", () => {
   })
 
   test("sanitizes forbidden control characters", () => {
-    const sequence = formatGhosttyNotificationSequence("A;B", "C\nD\x07E\x1bF\r", {})
-    expect(sequence).toBe("\x1b]9;AB: CDEF\x07")
+    const sequence = formatGhosttyNotificationSequence("A;B", "C\nD\x07E\x1bF\r\u009dG\u009c", {})
+    expect(sequence).toBe("\x1b]9;AB: CDEFG\x07")
   })
 })
 

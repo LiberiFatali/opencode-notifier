@@ -306,10 +306,15 @@ describe("focusTerminal", () => {
 })
 
 describe("buildOsascriptActivateAppArgs", () => {
-  test("passes the app name into the script arg instead of shell interpolation", () => {
-    const appName = `App';touch pwned;'`
+  test("escapes app names before putting them in AppleScript source", () => {
+    const appName = 'App"bad'
     const args = buildOsascriptActivateAppArgs(appName)
     expect(args[0]).toBe("-e")
-    expect(args[1]).toBe(`tell application "${appName}" to activate`)
+    expect(args[1]).toBe('tell application "App\\"bad" to activate')
+  })
+
+  test("removes control characters from app names", () => {
+    const args = buildOsascriptActivateAppArgs("Terminal\n; do shell script \"touch pwned\"")
+    expect(args[1]).toBe('tell application "Terminal; do shell script \\"touch pwned\\"" to activate')
   })
 })
