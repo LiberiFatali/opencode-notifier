@@ -4,7 +4,7 @@ OpenCode plugin that plays sounds and sends system notifications when permission
 
 ## Quick Start
 
-Install plugin by CLI: `opencode plug -g @mohak34/opencode-notifier`.
+Install the plugin via the CLI: `opencode plug -g @mohak34/opencode-notifier`.
 
 Or add manually to your `opencode.json`:
 
