@@ -148,7 +148,154 @@ function getLinuxWaylandActiveWindowId(): string | null {
   if (env.NIRI_SOCKET) return getNiriActiveWindowId()
   if (env.SWAYSOCK) return getSwayActiveWindowId()
   if (env.KDE_SESSION_VERSION) return firstNumericWindowId(execWithTimeout("kdotool getactivewindow"))
+  if (isGnomeLikeSession(env)) return getGnomeAtspiActiveWindowKey()
   return null
+}
+
+// --- GNOME Wayland focus detection via AT-SPI --------------------------------
+// GNOME intentionally exposes no compositor API for the focused window
+// (Introspect GetWindows/Eval are AccessDenied), and XWayland tools like
+// xdotool cannot see native Wayland windows. The accessibility bus is the
+// remaining out-of-band channel: every toolkit window (including Ghostty's
+// /com/mitchellh/ghostty nodes) reports AT-SPI states, where bit 1 (ACTIVE)
+// means "window is currently the active window". Verified on Ubuntu 26.04 /
+// GNOME Shell 50 + Ghostty by sampling states across real focus switches
+// (issues #83, #104).
+
+const ATSPI_ACTIVE_BIT_INDEX = 1
+
+const ATSPI_TERMINAL_PATH_MARKERS = ["mitchellh/ghostty"]
+
+export function isGnomeLikeSession(env: NodeJS.ProcessEnv = process.env): boolean {
+  const desktop = `${env.XDG_CURRENT_DESKTOP ?? ""} ${env.DESKTOP_SESSION ?? ""}`.toLowerCase()
+  return desktop.includes("gnome") || desktop.includes("ubuntu") || desktop.includes("pop")
+}
+
+export function parseAtspiString(output: string | null): string | null {
+  if (!output) return null
+  const match = output.match(/'((?:[^'\\]|\\.)*)'/)
+  if (!match) return null
+  try {
+    return JSON.parse(`"${match[1].replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`)
+  } catch {
+    return match[1]
+  }
+}
+
+export interface AtspiObjectRef {
+  bus: string
+  path: string
+}
+
+export function parseAtspiObjectRefs(output: string | null): AtspiObjectRef[] {
+  if (!output) return []
+  const refs: AtspiObjectRef[] = []
+  const re = /\('([^']+)',\s*(?:objectpath\s+)?'([^']+)'\)/g
+  let match: RegExpExecArray | null
+  while ((match = re.exec(output)) !== null) {
+    refs.push({ bus: match[1], path: match[2] })
+  }
+  return refs
+}
+
+export function parseAtspiStateActive(output: string | null): boolean | null {
+  if (!output) return null
+  const match = output.match(/uint32\s+(\d+)/)
+  if (!match) return null
+  const firstWord = Number(match[1]) >>> 0
+  return ((firstWord >>> ATSPI_ACTIVE_BIT_INDEX) & 1) === 1
+}
+
+export function isAtspiTerminalWindow(appName: string | null, windowPath: string): boolean {
+  if (ATSPI_TERMINAL_PATH_MARKERS.some((marker) => windowPath.toLowerCase().includes(marker))) {
+    return true
+  }
+  if (!appName) return false
+  return LINUX_TERMINAL_APPS.has(appName.trim().toLowerCase())
+}
+
+function getAtspiBusAddress(): string | null {
+  const output = execFileWithTimeout("gdbus", [
+    "call", "--session",
+    "--dest", "org.a11y.Bus",
+    "--object-path", "/org/a11y/bus",
+    "--method", "org.a11y.Bus.GetAddress",
+  ], 1000)
+  return parseAtspiString(output)
+}
+
+function getAtspiWindowRole(address: string, appBus: string, windowPath: string): string | null {
+  const output = execFileWithTimeout("gdbus", [
+    "call", "--address", address,
+    "--dest", appBus,
+    "--object-path", windowPath,
+    "--method", "org.a11y.atspi.Accessible.GetRoleName",
+  ], 500)
+  return parseAtspiString(output)
+}
+
+function isAtspiWindowActive(address: string, appBus: string, windowPath: string): boolean | null {
+  const output = execFileWithTimeout("gdbus", [
+    "call", "--address", address,
+    "--dest", appBus,
+    "--object-path", windowPath,
+    "--method", "org.a11y.atspi.Accessible.GetState",
+  ], 500)
+  return parseAtspiStateActive(output)
+}
+
+function getAtspiTerminalWindowRefs(address: string): AtspiObjectRef[] {
+  const refs: AtspiObjectRef[] = []
+  const rootOutput = execFileWithTimeout("gdbus", [
+    "call", "--address", address,
+    "--dest", "org.a11y.atspi.Registry",
+    "--object-path", "/org/a11y/atspi/accessible/root",
+    "--method", "org.a11y.atspi.Accessible.GetChildren",
+  ], 1000)
+  for (const app of parseAtspiObjectRefs(rootOutput)) {
+    const appName = parseAtspiString(execFileWithTimeout("gdbus", [
+      "call", "--address", address,
+      "--dest", app.bus,
+      "--object-path", "/org/a11y/atspi/accessible/root",
+      "--method", "org.freedesktop.DBus.Properties.Get",
+      "org.a11y.atspi.Accessible", "Name",
+    ], 500))
+    const childrenOutput = execFileWithTimeout("gdbus", [
+      "call", "--address", address,
+      "--dest", app.bus,
+      "--object-path", app.path,
+      "--method", "org.a11y.atspi.Accessible.GetChildren",
+    ], 500)
+    for (const child of parseAtspiObjectRefs(childrenOutput)) {
+      if (!isAtspiTerminalWindow(appName, child.path)) continue
+      const role = getAtspiWindowRole(address, child.bus, child.path)?.toLowerCase()
+      if (role === "window" || role === "frame" || role === "dialog" || role === null) {
+        refs.push(child)
+      }
+    }
+  }
+  return refs
+}
+
+export function getGnomeAtspiActiveWindowKey(): string | null {
+  try {
+    const address = getAtspiBusAddress()
+    if (!address) return null
+    for (const ref of getAtspiTerminalWindowRefs(address)) {
+      if (isAtspiWindowActive(address, ref.bus, ref.path) === true) {
+        return `atspi:${ref.path}`
+      }
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
+export function debugFocusState(message: string): void {
+  if (process.env.OPENCODE_NOTIFIER_DEBUG) {
+    console.error(`[opencode-notifier] ${message}`)
+  }
 }
 
 const WINDOWS_TERMINAL_WINDOW_CLASSES = new Set<string>([
@@ -398,12 +545,17 @@ export function isTerminalFocused(): boolean {
     }
 
     const tmuxPaneActive = process.env.TMUX ? isTmuxPaneActive() : null
-    return isLinuxTerminalFocused({
+    const currentWindowId = getActiveWindowId()
+    const focused = isLinuxTerminalFocused({
       cachedWindowId,
-      currentWindowId: getActiveWindowId(),
+      currentWindowId,
       wezTermPaneActive: isWezTermPaneActive(),
       tmuxPaneActive,
     })
+    debugFocusState(
+      `linux focus: session=${process.env.XDG_SESSION_TYPE ?? "?"} desktop=${process.env.XDG_CURRENT_DESKTOP ?? process.env.DESKTOP_SESSION ?? "?"} cached=${cachedWindowId ?? "null"} current=${currentWindowId ?? "null"} tmux=${String(tmuxPaneActive)} focused=${focused}`
+    )
+    return focused
   } catch {
     return false
   }

@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test"
-import { isLinuxTerminalFocused, isMacTerminalAppFocused, isTmuxPaneFocused, parseWezTermFocusedPaneId, isKDEJumpBackSupported, captureStartupWindowId, focusTerminal, getCachedWindowTitle, isWindowsTerminalFocused, buildOsascriptActivateAppArgs, findQdbusBinary, resolveQdbusBinary } from "./focus"
+import { isLinuxTerminalFocused, isMacTerminalAppFocused, isTmuxPaneFocused, parseWezTermFocusedPaneId, isKDEJumpBackSupported, captureStartupWindowId, focusTerminal, getCachedWindowTitle, isWindowsTerminalFocused, buildOsascriptActivateAppArgs, findQdbusBinary, resolveQdbusBinary, isGnomeLikeSession, parseAtspiString, parseAtspiObjectRefs, parseAtspiStateActive, isAtspiTerminalWindow } from "./focus"
 
 describe("isMacTerminalAppFocused", () => {
   test("matches Terminal when TERM_PROGRAM is Apple_Terminal", () => {
@@ -328,6 +328,115 @@ describe("resolveQdbusBinary", () => {
 describe("focusTerminal", () => {
   test("does not throw on unsupported platforms", async () => {
     await expect(focusTerminal()).resolves.toBeUndefined()
+  })
+})
+
+describe("isGnomeLikeSession", () => {
+  test("matches ubuntu/gnome desktops", () => {
+    expect(isGnomeLikeSession({ XDG_CURRENT_DESKTOP: "ubuntu:GNOME" } as NodeJS.ProcessEnv)).toBe(true)
+    expect(isGnomeLikeSession({ DESKTOP_SESSION: "gnome" } as NodeJS.ProcessEnv)).toBe(true)
+    expect(isGnomeLikeSession({ XDG_CURRENT_DESKTOP: "pop:GNOME" } as NodeJS.ProcessEnv)).toBe(true)
+  })
+
+  test("rejects kde/hyprland/sway sessions", () => {
+    expect(isGnomeLikeSession({ XDG_CURRENT_DESKTOP: "KDE", KDE_SESSION_VERSION: "6" } as NodeJS.ProcessEnv)).toBe(false)
+    expect(isGnomeLikeSession({ XDG_CURRENT_DESKTOP: "Hyprland" } as NodeJS.ProcessEnv)).toBe(false)
+    expect(isGnomeLikeSession({} as NodeJS.ProcessEnv)).toBe(false)
+  })
+})
+
+describe("parseAtspiString", () => {
+  test("extracts bus address from gdbus string tuple", () => {
+    expect(parseAtspiString("('unix:path=/run/user/1000/at-spi/bus,guid=abc',)")).toBe("unix:path=/run/user/1000/at-spi/bus,guid=abc")
+  })
+
+  test("extracts role and app names", () => {
+    expect(parseAtspiString("('window',)")).toBe("window")
+    expect(parseAtspiString("(<'Ghostty'>,)")).toBe("Ghostty")
+  })
+
+  test("returns null for empty output", () => {
+    expect(parseAtspiString(null)).toBe(null)
+    expect(parseAtspiString("")).toBe(null)
+    expect(parseAtspiString("Error: something failed")).toBe(null)
+  })
+})
+
+describe("parseAtspiObjectRefs", () => {
+  test("parses root children into bus/path refs", () => {
+    const output = "([(':1.18', objectpath '/org/a11y/atspi/accessible/root'), (':1.17', '/org/a11y/atspi/accessible/root')],)"
+    expect(parseAtspiObjectRefs(output)).toEqual([
+      { bus: ":1.18", path: "/org/a11y/atspi/accessible/root" },
+      { bus: ":1.17", path: "/org/a11y/atspi/accessible/root" },
+    ])
+  })
+
+  test("parses ghostty window path", () => {
+    const output = "([(':1.18', objectpath '/com/mitchellh/ghostty/a11y/99610c12')],)"
+    expect(parseAtspiObjectRefs(output)).toEqual([
+      { bus: ":1.18", path: "/com/mitchellh/ghostty/a11y/99610c12" },
+    ])
+  })
+
+  test("returns empty for null output", () => {
+    expect(parseAtspiObjectRefs(null)).toEqual([])
+    expect(parseAtspiObjectRefs("")).toEqual([])
+  })
+})
+
+describe("parseAtspiStateActive", () => {
+  test("detects ACTIVE bit on focused ghostty window (#83/#104 probe)", () => {
+    expect(parseAtspiStateActive("([uint32 1124073474, 0],)")).toBe(true)
+  })
+
+  test("detects missing ACTIVE bit on unfocused ghostty window", () => {
+    expect(parseAtspiStateActive("([uint32 1124073472, 0],)")).toBe(false)
+  })
+
+  test("returns null when state is unavailable", () => {
+    expect(parseAtspiStateActive(null)).toBe(null)
+    expect(parseAtspiStateActive("")).toBe(null)
+  })
+})
+
+describe("isAtspiTerminalWindow", () => {
+  test("matches ghostty by path marker even with unnamed app", () => {
+    expect(isAtspiTerminalWindow("Unnamed", "/com/mitchellh/ghostty/a11y/99610c12")).toBe(true)
+  })
+
+  test("matches known terminals by app name", () => {
+    expect(isAtspiTerminalWindow("konsole", "/org/a11y/atspi/accessible/1")).toBe(true)
+    expect(isAtspiTerminalWindow("Ghostty", "/org/a11y/atspi/accessible/1")).toBe(true)
+  })
+
+  test("rejects browsers and other apps", () => {
+    expect(isAtspiTerminalWindow("Google Chrome", "/org/a11y/atspi/accessible/1")).toBe(false)
+    expect(isAtspiTerminalWindow("Unnamed", "/org/a11y/atspi/accessible/1")).toBe(false)
+    expect(isAtspiTerminalWindow(null, "/org/a11y/atspi/accessible/1")).toBe(false)
+  })
+})
+
+describe("isLinuxTerminalFocused with atspi keys", () => {
+  test("suppresses when cached and current atspi keys match", () => {
+    expect(
+      isLinuxTerminalFocused({
+        cachedWindowId: "atspi:/com/mitchellh/ghostty/a11y/99610c12",
+        currentWindowId: "atspi:/com/mitchellh/ghostty/a11y/99610c12",
+        wezTermPaneActive: true,
+        tmuxPaneActive: null,
+      })
+    ).toBe(true)
+  })
+
+  test("notifies when a different ghostty window is focused", () => {
+    expect(
+      isLinuxTerminalFocused({
+        cachedWindowId: "atspi:/com/mitchellh/ghostty/a11y/aaaa",
+        currentWindowId: "atspi:/com/mitchellh/ghostty/a11y/bbbb",
+        wezTermPaneActive: true,
+        tmuxPaneActive: null,
+      })
+    ).toBe(false)
   })
 })
 

@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+- Linux GNOME Wayland: `suppressWhenFocused` now works via AT-SPI focus detection (#83, #104)
+  - GNOME exposes no compositor focus API and `xdotool` cannot see native Wayland windows, so the backend reads the AT-SPI `ACTIVE` state bit over `org.a11y.Bus` (requires `gdbus`)
+  - Ghostty is matched by its `/com/mitchellh/ghostty` AT-SPI path, other terminals by app name
+  - Previously GNOME sessions always fell back to notifying (and with `notificationSystem: ghostty`, Ghostty hid its own banner while plugin sounds still played)
+- Added `OPENCODE_NOTIFIER_DEBUG=1` to log the focus backend decision (`cached`/`current` window, session, result)
+
 ## [0.2.8] - 2026-06-05
 
 ### Fixed
