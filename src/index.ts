@@ -19,7 +19,7 @@ import { sendNotification } from "./notify"
 import { playSound } from "./sound"
 import { ringBell } from "./bell"
 import { runCommand } from "./command"
-import { isTerminalFocused, focusTerminal, captureStartupWindowId, isKDEJumpBackSupported } from "./focus"
+import { isTerminalFocused, focusTerminal, captureStartupWindowId, isLinuxJumpBackSupported } from "./focus"
 import { shouldSuppressPermissionAlert, prunePermissionAlertState } from "./permission-dedupe"
 
 const IDLE_COMPLETE_DELAY_MS = 350
@@ -200,7 +200,7 @@ async function handleEvent(
   if (notificationEnabled) {
     const title = getNotificationTitle(config, projectName)
     const iconPath = getIconPath(config)
-    const onNotificationClick = isKDEJumpBackSupported() ? () => void focusTerminal() : undefined
+    const onNotificationClick = isLinuxJumpBackSupported() ? () => void focusTerminal() : undefined
     promises.push(sendNotification(title, message, config.timeout, iconPath, config.notificationSystem, config.linux.grouping, onNotificationClick, config.windows.appID))
   }
 

@@ -459,14 +459,32 @@ With grouping enabled, each new notification replaces the previous one so you on
 
 Works with all major notification daemons (GNOME, dunst, mako, swaync, etc.) on both X11 and Wayland.
 
-## KDE Plasma: Jump back to terminal from notification
+## Linux: Jump back to terminal from notification
 
-On KDE Plasma/Wayland, clicking the popup body is not consistently delivered as a notification activation event.This plugin uses an explicit notification action button instead:
+On Linux, notifications carry an explicit action button instead of relying on
+popup-body clicks (which GNOME Shell and KDE don't consistently deliver as an
+activation event):
 
 - **Jump to terminal** (action button on the popup card, or in notification history)
 
-When clicked, the plugin runs its terminal-focus path. On KDE with `kdotool` installed, it auto-captures the startup terminal window ID and jumps back to that pinned window.
-The action button is only enabled on Linux KDE sessions where `kdotool` is available.
+When clicked, the plugin runs its terminal-focus path. Requires `notify-send`
+0.8+ (standard on Ubuntu 22.04+, Debian 12+, Fedora 36+, Arch).
+
+- **KDE Plasma/Wayland**: with `kdotool` installed, the plugin auto-captures the startup terminal window ID and jumps back to that pinned window.
+- **GNOME Wayland**: best-effort only. GNOME exposes no compositor focus API
+  (`Introspect.GetWindows`/`Eval` are access-denied) and XWayland tools like
+  `xdotool` cannot see native Wayland windows (e.g. Ghostty), so the plugin
+  tries pinned/XID activation via `xdotool`, a terminal-classname search,
+  `wmctrl` if present, and a Shell `Eval` attempt — and silently stays put if
+  the compositor blocks all of them. Click the **button**, not the popup body:
+  body clicks open Notification Center and are never routed back to the plugin.
+  Set `OPENCODE_NOTIFIER_DEBUG=1` to log which activator was tried.
+- **Hyprland / Sway / Niri / X11**: focused via their native IPC (`hyprctl`,
+  `swaymsg`, `niri msg`, `xdotool`).
+
+The action button is enabled on any Linux session with a display server
+(`WAYLAND_DISPLAY` or `DISPLAY` set, not WSL). Headless/SSH sessions without a
+display or D-Bus session bus skip notifications entirely.
 
 ## Updating
 

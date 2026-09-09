@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test"
-import { isLinuxTerminalFocused, isMacTerminalAppFocused, isTmuxPaneFocused, parseWezTermFocusedPaneId, isKDEJumpBackSupported, captureStartupWindowId, focusTerminal, getCachedWindowTitle, isWindowsTerminalFocused, buildOsascriptActivateAppArgs, isGnomeLikeSession, parseAtspiString, parseAtspiObjectRefs, parseAtspiStateActive, isAtspiTerminalWindow } from "./focus"
+import { isLinuxTerminalFocused, isMacTerminalAppFocused, isTmuxPaneFocused, parseWezTermFocusedPaneId, isKDEJumpBackSupported, isLinuxJumpBackSupported, captureStartupWindowId, focusTerminal, getCachedWindowTitle, isWindowsTerminalFocused, buildOsascriptActivateAppArgs, isGnomeLikeSession, parseAtspiString, parseAtspiObjectRefs, parseAtspiStateActive, isAtspiTerminalWindow } from "./focus"
 
 describe("isMacTerminalAppFocused", () => {
   test("matches Terminal when TERM_PROGRAM is Apple_Terminal", () => {
@@ -275,6 +275,45 @@ describe("isKDEJumpBackSupported", () => {
   })
 })
 
+describe("isLinuxJumpBackSupported", () => {
+  test("returns false on non-linux platforms even with display", () => {
+    const originalPlatform = Object.getOwnPropertyDescriptor(process, "platform")
+    Object.defineProperty(process, "platform", { value: "darwin" })
+    try {
+      expect(isLinuxJumpBackSupported({ WAYLAND_DISPLAY: "wayland-0", DISPLAY: ":0" } as NodeJS.ProcessEnv)).toBe(false)
+    } finally {
+      if (originalPlatform) {
+        Object.defineProperty(process, "platform", originalPlatform)
+      }
+    }
+  })
+
+  test("returns true on linux with a display server", () => {
+    const originalPlatform = Object.getOwnPropertyDescriptor(process, "platform")
+    Object.defineProperty(process, "platform", { value: "linux" })
+    try {
+      expect(isLinuxJumpBackSupported({ WAYLAND_DISPLAY: "wayland-0" } as NodeJS.ProcessEnv)).toBe(true)
+      expect(isLinuxJumpBackSupported({ DISPLAY: ":0" } as NodeJS.ProcessEnv)).toBe(true)
+    } finally {
+      if (originalPlatform) {
+        Object.defineProperty(process, "platform", originalPlatform)
+      }
+    }
+  })
+
+  test("returns false on linux headless without display", () => {
+    const originalPlatform = Object.getOwnPropertyDescriptor(process, "platform")
+    Object.defineProperty(process, "platform", { value: "linux" })
+    try {
+      expect(isLinuxJumpBackSupported({} as NodeJS.ProcessEnv)).toBe(false)
+    } finally {
+      if (originalPlatform) {
+        Object.defineProperty(process, "platform", originalPlatform)
+      }
+    }
+  })
+})
+
 describe("getCachedWindowTitle", () => {
   test("returns null when not on linux with kde", () => {
     expect(getCachedWindowTitle()).toBe(null)
@@ -282,7 +321,9 @@ describe("getCachedWindowTitle", () => {
 })
 
 describe("captureStartupWindowId", () => {
-  test("does not set env var when kde jump back is unsupported", () => {
+  test("does not set env var when jump back is unsupported", () => {
+    const originalPlatform = Object.getOwnPropertyDescriptor(process, "platform")
+    Object.defineProperty(process, "platform", { value: "darwin" })
     const original = process.env.OPENCODE_NOTIFIER_WINDOW_ID
     delete process.env.OPENCODE_NOTIFIER_WINDOW_ID
 
@@ -290,6 +331,9 @@ describe("captureStartupWindowId", () => {
       captureStartupWindowId()
       expect(process.env.OPENCODE_NOTIFIER_WINDOW_ID).toBeUndefined()
     } finally {
+      if (originalPlatform) {
+        Object.defineProperty(process, "platform", originalPlatform)
+      }
       if (original) {
         process.env.OPENCODE_NOTIFIER_WINDOW_ID = original
       } else {

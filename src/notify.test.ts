@@ -35,8 +35,11 @@ describe("parseNotifySendOutputLine", () => {
     expect(parseNotifySendOutputLine("close")).toEqual({ type: "action", action: "close" })
   })
 
-  test("ignores legacy/default tokens and unknown values", () => {
-    expect(parseNotifySendOutputLine("default")).toBeNull()
+  test("parses default action token as focus", () => {
+    expect(parseNotifySendOutputLine("default")).toEqual({ type: "action", action: "focus" })
+  })
+
+  test("ignores numeric 0 as id and unknown values", () => {
     expect(parseNotifySendOutputLine("0")).toEqual({ type: "id", id: 0 })
     expect(parseNotifySendOutputLine("Focus")).toBeNull()
     expect(parseNotifySendOutputLine("random")).toBeNull()

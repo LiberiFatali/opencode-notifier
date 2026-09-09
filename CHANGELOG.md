@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- Linux: clicking the notification now offers "Jump to terminal" on all desktops, not just KDE (#97, #106)
+  - The click handler was gated behind `isKDEJumpBackSupported()`, so GNOME/Hyprland/Sway/Niri/X11 popups had no action button and body clicks were swallowed by the compositor
+  - New `isLinuxJumpBackSupported()` enables the `notify-send --action` button on any Linux session with `WAYLAND_DISPLAY`/`DISPLAY` (excludes WSL/headless)
+  - New best-effort GNOME Wayland focus chain in `focusTerminal()` (pinned XID via `xdotool`, terminal-classname search, `wmctrl`, Shell `Eval` attempt) with `OPENCODE_NOTIFIER_DEBUG=1` logging; stays put gracefully when the compositor blocks focus
+  - `captureStartupWindowId()` now also pins the numeric window ID on X11/XWayland sessions, not just KDE
 - Linux GNOME Wayland: `suppressWhenFocused` now works via AT-SPI focus detection (#83, #104)
   - GNOME exposes no compositor focus API and `xdotool` cannot see native Wayland windows, so the backend reads the AT-SPI `ACTIVE` state bit over `org.a11y.Bus` (requires `gdbus`)
   - Ghostty is matched by its `/com/mitchellh/ghostty` AT-SPI path, other terminals by app name

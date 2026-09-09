@@ -140,6 +140,7 @@ async function sendLinuxNotificationWithActions(
   // and still keep replace-id working.
   args.push("--print-id")
 
+  args.push("--action", `default=${LINUX_FOCUS_ACTION_LABEL}`)
   args.push("--action", `${LINUX_FOCUS_ACTION_KEY}=${LINUX_FOCUS_ACTION_LABEL}`)
 
   args.push("--", title, message)
@@ -217,7 +218,7 @@ export function parseNotifySendOutputLine(
     }
   }
 
-  if (trimmed === LINUX_FOCUS_ACTION_KEY) {
+  if (trimmed === LINUX_FOCUS_ACTION_KEY || trimmed === "default") {
     return { type: "action", action: "focus" }
   }
 

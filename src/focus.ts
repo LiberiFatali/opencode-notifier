@@ -2,6 +2,7 @@ import { execFile, execFileSync, execSync } from "child_process"
 import { readFileSync, unlinkSync, writeFileSync } from "fs"
 import { tmpdir } from "os"
 import { join } from "path"
+import isWsl from "is-wsl"
 
 const LINUX_TERMINAL_APPS = new Set<string>([
   "ghostty",
@@ -568,6 +569,24 @@ export function isKDEJumpBackSupported(): boolean {
   return cachedKDEJumpBackSupport
 }
 
+export function isLinuxJumpBackSupported(env: NodeJS.ProcessEnv = process.env): boolean {
+  if (process.platform !== "linux" || isWsl) {
+    return false
+  }
+
+  if (isKDEJumpBackSupported()) {
+    return true
+  }
+
+  // Best-effort on other Linux desktops (GNOME, Hyprland, Sway, Niri, X11):
+  // notify-send --action implies --wait and surfaces a "Jump to terminal"
+  // button whose click is routed back to focusTerminal(). Focus itself may
+  // still fail on locked-down compositors (notably GNOME Wayland), but the
+  // button must be shown so the user has a chance. Headless sessions without
+  // any display server are excluded.
+  return !!(env.WAYLAND_DISPLAY || env.DISPLAY)
+}
+
 function getWindowClassX11(windowId: string): string | null {
   return execWithTimeout(`xprop -id ${windowId} WM_CLASS 2>/dev/null | awk -F '"' '{print $4}'`)
 }
@@ -924,8 +943,57 @@ function focusLinuxWindowNiri(windowId: string): void {
   }
 }
 
+function focusLinuxWindowGnome(): void {
+  // GNOME Wayland exposes no compositor focus API and blocks Shell Eval, so
+  // this is intentionally best-effort: numeric XIDs (XWayland or manual pin)
+  // via xdotool, then a classname search, then wmctrl, then a Shell Eval
+  // attempt that succeeds only with extensions/unsafe-mode. Never throws.
+  const tryXdotoolActivate = (windowId: string): boolean => {
+    if (!/^\d+$/.test(windowId)) return false
+    try {
+      execSync(`xdotool windowactivate ${windowId} 2>/dev/null`, { timeout: 1000 })
+      debugFocusState(`gnome focus: xdotool windowactivate ${windowId}`)
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  const pinned = process.env.OPENCODE_NOTIFIER_WINDOW_ID?.trim()
+  if (pinned && tryXdotoolActivate(pinned)) return
+
+  if (cachedWindowId && tryXdotoolActivate(cachedWindowId)) return
+
+  for (const app of LINUX_TERMINAL_APPS) {
+    const id = getWindowIdFromXdotool(app)
+    if (id && tryXdotoolActivate(id)) return
+  }
+
+  const wmctrl = execFileWithTimeout("wmctrl", ["-l"], 1000)
+  if (wmctrl) {
+    for (const line of wmctrl.split("\n")) {
+      const lower = line.toLowerCase()
+      for (const app of LINUX_TERMINAL_APPS) {
+        if (lower.includes(app)) {
+          const id = line.split(/\s+/)[0]
+          if (id && tryXdotoolActivate(id)) return
+        }
+      }
+    }
+  }
+
+  try {
+    execSync(
+      `gdbus call --session --dest org.gnome.Shell --object-path /org/gnome/Shell --method org.gnome.Shell.Eval 'global.display.focus_window()' 2>/dev/null`,
+      { timeout: 1000 }
+    )
+  } catch {
+  }
+  debugFocusState("gnome focus: no activator succeeded (compositor likely blocked focus)")
+}
+
 export function captureStartupWindowId(): void {
-  if (!isKDEJumpBackSupported()) {
+  if (!isLinuxJumpBackSupported()) {
     return
   }
 
@@ -934,9 +1002,22 @@ export function captureStartupWindowId(): void {
     return
   }
 
-  const detected = execWithTimeout("kdotool getactivewindow", 1000)
-  if (detected && /^\d+$/.test(detected)) {
-    process.env.OPENCODE_NOTIFIER_WINDOW_ID = detected
+  if (isKDEJumpBackSupported()) {
+    const detected = execWithTimeout("kdotool getactivewindow", 1000)
+    if (detected && /^\d+$/.test(detected)) {
+      process.env.OPENCODE_NOTIFIER_WINDOW_ID = detected
+    }
+    return
+  }
+
+  // X11 / XWayland sessions: pin the numeric window ID for deterministic
+  // jump-back. On native Wayland (e.g. GNOME + Ghostty) xdotool sees nothing
+  // and we leave it unset so focus falls back to classname search.
+  if (process.env.DISPLAY) {
+    const detected = execWithTimeout("xdotool getactivewindow", 1000)
+    if (detected && /^\d+$/.test(detected)) {
+      process.env.OPENCODE_NOTIFIER_WINDOW_ID = detected
+    }
   }
 }
 
@@ -967,6 +1048,13 @@ export async function focusTerminal(): Promise<void> {
     // For KDE Plasma, use KWin script approach which works on both X11 and Wayland
     if (env.KDE_SESSION_VERSION) {
       focusKDEWithKWinScript()
+      return
+    }
+
+    // GNOME Wayland has no compositor focus API; use the best-effort chain
+    // (pinned/XID via xdotool, classname search, wmctrl, Shell Eval).
+    if (isGnomeLikeSession(env)) {
+      focusLinuxWindowGnome()
       return
     }
     
