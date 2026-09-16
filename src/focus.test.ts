@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test"
-import { isLinuxTerminalFocused, isMacTerminalAppFocused, isTmuxPaneFocused, parseWezTermFocusedPaneId, isKDEJumpBackSupported, captureStartupWindowId, focusTerminal, getCachedWindowTitle, isWindowsTerminalFocused, buildOsascriptActivateAppArgs, resolveQdbusBinary } from "./focus"
+import { isLinuxTerminalFocused, isMacTerminalAppFocused, isTmuxPaneFocused, parseWezTermFocusedPaneId, isKDEJumpBackSupported, captureStartupWindowId, focusTerminal, getCachedWindowTitle, isWindowsTerminalFocused, buildOsascriptActivateAppArgs, findQdbusBinary, resolveQdbusBinary } from "./focus"
 
 describe("isMacTerminalAppFocused", () => {
   test("matches Terminal when TERM_PROGRAM is Apple_Terminal", () => {
@@ -299,10 +299,29 @@ describe("captureStartupWindowId", () => {
   })
 })
 
+describe("findQdbusBinary", () => {
+  test("prefers the first available candidate in order", () => {
+    const available = new Set(["qdbus-qt6", "qdbus"])
+    expect(findQdbusBinary(["qdbus-qt6", "qdbus6", "qdbus"], (name) => available.has(name))).toBe("qdbus-qt6")
+  })
+
+  test("falls through to plain qdbus when no versioned binary exists", () => {
+    expect(findQdbusBinary(["qdbus-qt6", "qdbus"], (name) => name === "qdbus")).toBe("qdbus")
+  })
+
+  test("returns null when nothing is available", () => {
+    expect(findQdbusBinary(["qdbus-qt6", "qdbus"], () => false)).toBe(null)
+  })
+})
+
 describe("resolveQdbusBinary", () => {
   test("returns a binary name or null without throwing", () => {
     const result = resolveQdbusBinary()
     expect(result === null || typeof result === "string").toBe(true)
+  })
+
+  test("caches the resolved value", () => {
+    expect(resolveQdbusBinary()).toBe(resolveQdbusBinary())
   })
 })
 
