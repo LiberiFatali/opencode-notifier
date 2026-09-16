@@ -30,7 +30,7 @@ let lastLinuxNotificationId: number | null = null
 let linuxNotifySendSupportsReplace: boolean | null = null
 
 function sanitizeGhosttyField(value: string): string {
-  return value.replace(/[;\x07\x1b\n\r]/g, "")
+  return value.replace(/[;\u0000-\u001f\u007f-\u009f]/g, "")
 }
 
 export function formatGhosttyNotificationSequence(

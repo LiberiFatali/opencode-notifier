@@ -1,5 +1,5 @@
 import { execFile, execFileSync, execSync } from "child_process"
-import { readFileSync, unlinkSync, writeFileSync } from "fs"
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs"
 import { tmpdir } from "os"
 import { join } from "path"
 
@@ -57,12 +57,27 @@ function execFileWithTimeout(command: string, args: readonly string[], timeoutMs
   }
 }
 
+function isNumericWindowId(value: string): boolean {
+  return /^\d+$/.test(value)
+}
+
+function isSafeCompositorWindowId(value: string): boolean {
+  return /^[A-Za-z0-9._:-]+$/.test(value)
+}
+
+function firstNumericWindowId(output: string | null): string | null {
+  if (!output) return null
+
+  const value = output.split(/\s+/).find((part) => isNumericWindowId(part))
+  return value ?? null
+}
+
 function getHyprlandActiveWindowId(): string | null {
   const output = execWithTimeout("hyprctl activewindow -j")
   if (!output) return null
   try {
     const data = JSON.parse(output)
-    return typeof data?.address === "string" ? data.address : null
+    return typeof data?.address === "string" && isSafeCompositorWindowId(data.address) ? data.address : null
   } catch {
     return null
   }
@@ -132,7 +147,7 @@ function getLinuxWaylandActiveWindowId(): string | null {
   if (env.HYPRLAND_INSTANCE_SIGNATURE) return getHyprlandActiveWindowId()
   if (env.NIRI_SOCKET) return getNiriActiveWindowId()
   if (env.SWAYSOCK) return getSwayActiveWindowId()
-  if (env.KDE_SESSION_VERSION) return execWithTimeout("kdotool getactivewindow")
+  if (env.KDE_SESSION_VERSION) return firstNumericWindowId(execWithTimeout("kdotool getactivewindow"))
   return null
 }
 
@@ -253,9 +268,14 @@ function getExpectedMacTerminalAppNames(env: NodeJS.ProcessEnv): Set<string> {
 }
 
 export function buildOsascriptActivateAppArgs(appName: string): string[] {
+  const escapedAppName = appName
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, "")
+    .replaceAll("\\", "\\\\")
+    .replaceAll('"', '\\"')
+
   return [
     "-e",
-    `tell application "${appName}" to activate`,
+    `tell application "${escapedAppName}" to activate`,
   ]
 }
 
@@ -278,7 +298,7 @@ function getActiveWindowId(): string | null {
   if (platform === "darwin") return getMacOSActiveWindowId()
   if (platform === "linux") {
     if (process.env.WAYLAND_DISPLAY) return getLinuxWaylandActiveWindowId()
-    if (process.env.DISPLAY) return execWithTimeout("xdotool getactivewindow")
+    if (process.env.DISPLAY) return firstNumericWindowId(execWithTimeout("xdotool getactivewindow"))
     return null
   }
   if (platform === "win32") return null
@@ -390,15 +410,16 @@ export function isTerminalFocused(): boolean {
 }
 
 function getWindowIdFromXdotool(searchTerm: string): string | null {
-  return execWithTimeout(`xdotool search --classname "${searchTerm}" | head -1`)
+  return firstNumericWindowId(execFileWithTimeout("xdotool", ["search", "--classname", searchTerm]))
 }
 
 function getWindowIdFromKdotool(searchTerm: string): string | null {
-  return execWithTimeout(`kdotool search --classname "${searchTerm}" | head -1`)
+  return firstNumericWindowId(execFileWithTimeout("kdotool", ["search", "--classname", searchTerm]))
 }
 
 function getWindowTitleFromKdotool(windowId: string): string | null {
-  return execWithTimeout(`kdotool getwindowname ${windowId}`)
+  if (!isNumericWindowId(windowId)) return null
+  return execFileWithTimeout("kdotool", ["getwindowname", windowId])
 }
 
 let cachedKDEJumpBackSupport: boolean | null = null
@@ -417,7 +438,13 @@ export function isKDEJumpBackSupported(): boolean {
 }
 
 function getWindowClassX11(windowId: string): string | null {
-  return execWithTimeout(`xprop -id ${windowId} WM_CLASS 2>/dev/null | awk -F '"' '{print $4}'`)
+  if (!isNumericWindowId(windowId)) return null
+
+  const output = execFileWithTimeout("xprop", ["-id", windowId, "WM_CLASS"])
+  if (!output) return null
+
+  const matches = [...output.matchAll(/"([^"]*)"/g)].map((match) => match[1])
+  return matches[1] ?? matches[0] ?? null
 }
 
 function getWaylandAppId(windowId: string): string | null {
@@ -523,17 +550,21 @@ function getTerminalWindowId(): string | null {
 }
 
 function focusLinuxWindowX11(windowId: string): void {
+  if (!isNumericWindowId(windowId)) return
+
   try {
-    execSync(`xdotool windowactivate ${windowId} 2>/dev/null`, { timeout: 1000 })
+    execFileSync("xdotool", ["windowactivate", windowId], { timeout: 1000, stdio: "ignore" })
   } catch {
   }
 }
 
 function focusLinuxWindowKDE(windowId: string): void {
+  if (!isNumericWindowId(windowId)) return
+
   try {
-    const result = execWithTimeout(`kdotool getactivewindow`)
+    const result = firstNumericWindowId(execWithTimeout("kdotool getactivewindow"))
     if (result === windowId) return
-    execSync(`kdotool windowactivate ${windowId} 2>/dev/null`, { timeout: 1000 })
+    execFileSync("kdotool", ["windowactivate", windowId], { timeout: 1000, stdio: "ignore" })
   } catch {
     // kdotool not available, try KWin script approach
     focusKDEWithKWinScript()
@@ -580,17 +611,17 @@ function findTerminalPid(): number {
 function focusKDEWithKWinScript(): void {
   try {
     const pinnedWindowId = process.env.OPENCODE_NOTIFIER_WINDOW_ID?.trim() || null
-    if (pinnedWindowId) {
+    if (pinnedWindowId && isNumericWindowId(pinnedWindowId)) {
       try {
-        execSync(`kdotool windowactivate ${pinnedWindowId} 2>/dev/null`, { timeout: 1500 })
+        execFileSync("kdotool", ["windowactivate", pinnedWindowId], { timeout: 1500, stdio: "ignore" })
         return
       } catch {
       }
     }
 
-    if (cachedWindowId) {
+    if (cachedWindowId && isNumericWindowId(cachedWindowId)) {
       try {
-        execSync(`kdotool windowactivate ${cachedWindowId} 2>/dev/null`, { timeout: 1500 })
+        execFileSync("kdotool", ["windowactivate", cachedWindowId], { timeout: 1500, stdio: "ignore" })
         return
       } catch {
       }
@@ -709,65 +740,95 @@ function findAndActivateTerminal() {
 findAndActivateTerminal();
 `;
     
-    const scriptPath = join(tmpdir(), `opencode-focus-${currentPid}.kwinscript`)
     const pluginName = `opencode-focus-${currentPid}`
-    writeFileSync(scriptPath, scriptContent)
+    let scriptDirectory: string | null = null
+    let scriptPath: string | null = null
+    let scriptLoaded = false
 
-    // Load the script
-    execSync(
-      `qdbus org.kde.KWin /Scripting org.kde.kwin.Scripting.loadScript "${scriptPath}" "${pluginName}"`,
-      { encoding: "utf-8", timeout: 2000 }
-    )
-
-    // Start the script
-    execSync(
-      `qdbus org.kde.KWin /Scripting org.kde.kwin.Scripting.start`,
-      { timeout: 2000 }
-    )
-
-    // Clean up
-    try {
-      unlinkSync(scriptPath)
-    } catch {}
-
-    // Unload the script after a short delay
-    setTimeout(() => {
+    const cleanupScript = () => {
+      if (!scriptPath || !scriptDirectory) return
       try {
-        execSync(
-          `qdbus org.kde.KWin /Scripting org.kde.kwin.Scripting.unloadScript "${pluginName}"`,
-          { timeout: 500 }
-        )
+        rmSync(scriptPath, { force: true })
       } catch {}
-    }, 1000)
-    
+      try {
+        rmSync(scriptDirectory, { recursive: true, force: true })
+      } catch {}
+    }
+
+    try {
+      scriptDirectory = mkdtempSync(join(tmpdir(), "opencode-focus-"))
+      scriptPath = join(scriptDirectory, "script.kwinscript")
+      writeFileSync(scriptPath, scriptContent, { encoding: "utf-8", mode: 0o600, flag: "wx" })
+
+      execFileSync(
+        "qdbus",
+        ["org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting.loadScript", scriptPath, pluginName],
+        { encoding: "utf-8", timeout: 2000, stdio: "ignore" }
+      )
+      scriptLoaded = true
+
+      execFileSync("qdbus", ["org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting.start"], {
+        timeout: 2000,
+        stdio: "ignore",
+      })
+
+      cleanupScript()
+
+      setTimeout(() => {
+        try {
+          execFileSync("qdbus", ["org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting.unloadScript", pluginName], {
+            timeout: 500,
+            stdio: "ignore",
+          })
+        } catch {}
+      }, 1000)
+    } catch {
+      if (scriptLoaded) {
+        try {
+          execFileSync("qdbus", ["org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting.unloadScript", pluginName], {
+            timeout: 500,
+            stdio: "ignore",
+          })
+        } catch {}
+      }
+      cleanupScript()
+      throw new Error("Unable to activate the terminal through KWin")
+    }
+
   } catch {
     // Fall back to xdotool
     try {
       const cachedId = cachedWindowId;
-      if (cachedId) {
-        execSync(`xdotool windowactivate ${cachedId} 2>/dev/null`, { timeout: 1000 });
+      if (cachedId && isNumericWindowId(cachedId)) {
+        execFileSync("xdotool", ["windowactivate", cachedId], { timeout: 1000, stdio: "ignore" })
       }
     } catch {}
   }
 }
 
 function focusLinuxWindowHyprland(windowId: string): void {
+  if (!isSafeCompositorWindowId(windowId)) return
+
   try {
-    execSync(`hyprctl dispatch focuswindow address:${windowId} 2>/dev/null`, { timeout: 1000 })
+    execFileSync("hyprctl", ["dispatch", "focuswindow", `address:${windowId}`], { timeout: 1000, stdio: "ignore" })
   } catch {
   }
 }
 
 function focusLinuxWindowSway(windowId: string): void {
+  if (!isNumericWindowId(windowId)) return
+
   try {
-    execSync(`swaymsg "[con_id=${windowId}] focus" 2>/dev/null`, { timeout: 1000 })
+    execFileSync("swaymsg", [`[con_id=${windowId}] focus`], { timeout: 1000, stdio: "ignore" })
   } catch {
   }
 }
 
 function focusLinuxWindowNiri(windowId: string): void {
+  if (!isNumericWindowId(windowId)) return
+
   try {
-    execSync(`niri msg action focus-window --id ${windowId} 2>/dev/null`, { timeout: 1000 })
+    execFileSync("niri", ["msg", "action", "focus-window", "--id", windowId], { timeout: 1000, stdio: "ignore" })
   } catch {
   }
 }

@@ -20,6 +20,9 @@ export function runCommand(config: NotifierConfig, event: EventType, message: st
   const command = substituteTokens(config.command.path, event, message, sessionTitle, agentName, projectName, timestamp, turn)
 
   const proc = spawn(command, args, {
+    // Keep token values as argv data. Interpreter commands must pass them to
+    // their script as separate arguments instead of embedding them in source.
+    shell: false,
     stdio: "ignore",
     detached: true,
     windowsHide: true,
