@@ -1,7 +1,7 @@
 import { execFile, execFileSync, execSync } from "child_process"
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs"
+import { accessSync, constants, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "fs"
 import { tmpdir } from "os"
-import { join } from "path"
+import { delimiter, join } from "path"
 
 const LINUX_TERMINAL_APPS = new Set<string>([
   "ghostty",
@@ -612,20 +612,40 @@ let cachedQdbusBinary: string | null | undefined
 
 // Fedora ships Qt's D-Bus tooling under versioned names (e.g. `qdbus-qt6`)
 // while other distros expose a plain `qdbus`. Resolve once and cache.
+const QDBUS_CANDIDATES = ["qdbus-qt6", "qdbus6", "qdbus-qt5", "qdbus5", "qdbus"]
+
+function isExecutableOnPath(name: string): boolean {
+  const pathEnv = process.env.PATH ?? ""
+  for (const dir of pathEnv.split(delimiter)) {
+    if (!dir) continue
+    const full = join(dir, name)
+    try {
+      accessSync(full, constants.X_OK)
+      if (statSync(full).isFile()) return true
+    } catch {}
+  }
+  return false
+}
+
+export function findQdbusBinary(
+  candidates: readonly string[] = QDBUS_CANDIDATES,
+  isExecutable: (name: string) => boolean = isExecutableOnPath
+): string | null {
+  for (const candidate of candidates) {
+    if (isExecutable(candidate)) {
+      return candidate
+    }
+  }
+  return null
+}
+
 export function resolveQdbusBinary(): string | null {
   if (cachedQdbusBinary !== undefined) {
     return cachedQdbusBinary
   }
 
-  for (const candidate of ["qdbus-qt6", "qdbus6", "qdbus-qt5", "qdbus5", "qdbus"]) {
-    if (execWithTimeout(`command -v ${candidate}`, 1000)) {
-      cachedQdbusBinary = candidate
-      return candidate
-    }
-  }
-
-  cachedQdbusBinary = null
-  return null
+  cachedQdbusBinary = findQdbusBinary()
+  return cachedQdbusBinary
 }
 
 function focusKDEWithKWinScript(): void {
