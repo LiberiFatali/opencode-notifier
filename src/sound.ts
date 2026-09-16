@@ -124,8 +124,9 @@ async function playOnMac(soundPath: string, volume: number): Promise<void> {
 }
 
 async function playOnWindows(soundPath: string): Promise<void> {
-  const script = `& { (New-Object Media.SoundPlayer $args[0]).PlaySync() }`
-  await runCommand("powershell", ["-NoProfile", "-NonInteractive", "-Command", script, soundPath])
+  const script = `(New-Object Media.SoundPlayer '${soundPath.replace(/'/g, "''")}').PlaySync()`
+  const encoded = Buffer.from(script, "utf16le").toString("base64")
+  await runCommand("powershell", ["-NoProfile", "-NonInteractive", "-EncodedCommand", encoded])
 }
 
 export async function playSound(
