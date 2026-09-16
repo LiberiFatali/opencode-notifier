@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test"
-import { isLinuxTerminalFocused, isMacTerminalAppFocused, isTmuxPaneFocused, parseWezTermFocusedPaneId, isKDEJumpBackSupported, captureStartupWindowId, focusTerminal, getCachedWindowTitle, isWindowsTerminalFocused, buildOsascriptActivateAppArgs } from "./focus"
+import { isLinuxTerminalFocused, isMacTerminalAppFocused, isTmuxPaneFocused, parseWezTermFocusedPaneId, isKDEJumpBackSupported, captureStartupWindowId, focusTerminal, getCachedWindowTitle, isWindowsTerminalFocused, buildOsascriptActivateAppArgs, resolveQdbusBinary } from "./focus"
 
 describe("isMacTerminalAppFocused", () => {
   test("matches Terminal when TERM_PROGRAM is Apple_Terminal", () => {
@@ -296,6 +296,13 @@ describe("captureStartupWindowId", () => {
         delete process.env.OPENCODE_NOTIFIER_WINDOW_ID
       }
     }
+  })
+})
+
+describe("resolveQdbusBinary", () => {
+  test("returns a binary name or null without throwing", () => {
+    const result = resolveQdbusBinary()
+    expect(result === null || typeof result === "string").toBe(true)
   })
 })
 

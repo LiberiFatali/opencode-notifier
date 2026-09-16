@@ -1,4 +1,4 @@
-import type { Plugin, PluginInput } from "@opencode-ai/plugin"
+import type { Plugin, PluginInput, PluginModule } from "@opencode-ai/plugin"
 import { basename } from "path"
 import { readFileSync, writeFileSync } from "fs"
 import {
@@ -605,4 +605,9 @@ export const NotifierPlugin: Plugin = async ({ client, directory }) => {
   }
 }
 
-export default NotifierPlugin
+const pluginModule: PluginModule = {
+  id: "opencode-notifier",
+  server: NotifierPlugin,
+}
+
+export default pluginModule

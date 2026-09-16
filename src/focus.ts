@@ -608,6 +608,26 @@ function findTerminalPid(): number {
   }
 }
 
+let cachedQdbusBinary: string | null | undefined
+
+// Fedora ships Qt's D-Bus tooling under versioned names (e.g. `qdbus-qt6`)
+// while other distros expose a plain `qdbus`. Resolve once and cache.
+export function resolveQdbusBinary(): string | null {
+  if (cachedQdbusBinary !== undefined) {
+    return cachedQdbusBinary
+  }
+
+  for (const candidate of ["qdbus-qt6", "qdbus6", "qdbus-qt5", "qdbus5", "qdbus"]) {
+    if (execWithTimeout(`command -v ${candidate}`, 1000)) {
+      cachedQdbusBinary = candidate
+      return candidate
+    }
+  }
+
+  cachedQdbusBinary = null
+  return null
+}
+
 function focusKDEWithKWinScript(): void {
   try {
     const pinnedWindowId = process.env.OPENCODE_NOTIFIER_WINDOW_ID?.trim() || null
@@ -755,19 +775,24 @@ findAndActivateTerminal();
       } catch {}
     }
 
+    const qdbus = resolveQdbusBinary()
+    if (!qdbus) {
+      throw new Error("qdbus not found")
+    }
+
     try {
       scriptDirectory = mkdtempSync(join(tmpdir(), "opencode-focus-"))
       scriptPath = join(scriptDirectory, "script.kwinscript")
       writeFileSync(scriptPath, scriptContent, { encoding: "utf-8", mode: 0o600, flag: "wx" })
 
       execFileSync(
-        "qdbus",
+        qdbus,
         ["org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting.loadScript", scriptPath, pluginName],
         { encoding: "utf-8", timeout: 2000, stdio: "ignore" }
       )
       scriptLoaded = true
 
-      execFileSync("qdbus", ["org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting.start"], {
+      execFileSync(qdbus, ["org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting.start"], {
         timeout: 2000,
         stdio: "ignore",
       })
@@ -776,7 +801,7 @@ findAndActivateTerminal();
 
       setTimeout(() => {
         try {
-          execFileSync("qdbus", ["org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting.unloadScript", pluginName], {
+          execFileSync(qdbus, ["org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting.unloadScript", pluginName], {
             timeout: 500,
             stdio: "ignore",
           })
@@ -785,7 +810,7 @@ findAndActivateTerminal();
     } catch {
       if (scriptLoaded) {
         try {
-          execFileSync("qdbus", ["org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting.unloadScript", pluginName], {
+          execFileSync(qdbus, ["org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting.unloadScript", pluginName], {
             timeout: 500,
             stdio: "ignore",
           })
