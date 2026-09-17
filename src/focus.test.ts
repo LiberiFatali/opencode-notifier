@@ -409,6 +409,11 @@ describe("isAtspiTerminalWindow", () => {
     expect(isAtspiTerminalWindow("Ghostty", "/org/a11y/atspi/accessible/1")).toBe(true)
   })
 
+  test("matches gnome-terminal-server AT-SPI alias", () => {
+    expect(isAtspiTerminalWindow("gnome-terminal-server", "/org/a11y/atspi/accessible/1")).toBe(true)
+    expect(isAtspiTerminalWindow("GNOME-Terminal-Server", "/org/a11y/atspi/accessible/1")).toBe(true)
+  })
+
   test("rejects browsers and other apps", () => {
     expect(isAtspiTerminalWindow("Google Chrome", "/org/a11y/atspi/accessible/1")).toBe(false)
     expect(isAtspiTerminalWindow("Unnamed", "/org/a11y/atspi/accessible/1")).toBe(false)
@@ -420,8 +425,8 @@ describe("isLinuxTerminalFocused with atspi keys", () => {
   test("suppresses when cached and current atspi keys match", () => {
     expect(
       isLinuxTerminalFocused({
-        cachedWindowId: "atspi:/com/mitchellh/ghostty/a11y/99610c12",
-        currentWindowId: "atspi:/com/mitchellh/ghostty/a11y/99610c12",
+        cachedWindowId: "atspi::1.10@/com/mitchellh/ghostty/a11y/99610c12",
+        currentWindowId: "atspi::1.10@/com/mitchellh/ghostty/a11y/99610c12",
         wezTermPaneActive: true,
         tmuxPaneActive: null,
       })
@@ -431,8 +436,19 @@ describe("isLinuxTerminalFocused with atspi keys", () => {
   test("notifies when a different ghostty window is focused", () => {
     expect(
       isLinuxTerminalFocused({
-        cachedWindowId: "atspi:/com/mitchellh/ghostty/a11y/aaaa",
-        currentWindowId: "atspi:/com/mitchellh/ghostty/a11y/bbbb",
+        cachedWindowId: "atspi::1.10@/com/mitchellh/ghostty/a11y/aaaa",
+        currentWindowId: "atspi::1.10@/com/mitchellh/ghostty/a11y/bbbb",
+        wezTermPaneActive: true,
+        tmuxPaneActive: null,
+      })
+    ).toBe(false)
+  })
+
+  test("notifies when same generic path comes from a different bus (identity collision)", () => {
+    expect(
+      isLinuxTerminalFocused({
+        cachedWindowId: "atspi::1.45@/org/a11y/atspi/accessible/1",
+        currentWindowId: "atspi::1.2626@/org/a11y/atspi/accessible/1",
         wezTermPaneActive: true,
         tmuxPaneActive: null,
       })

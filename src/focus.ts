@@ -158,13 +158,21 @@ function getLinuxWaylandActiveWindowId(): string | null {
 // xdotool cannot see native Wayland windows. The accessibility bus is the
 // remaining out-of-band channel: every toolkit window (including Ghostty's
 // /com/mitchellh/ghostty nodes) reports AT-SPI states, where bit 1 (ACTIVE)
-// means "window is currently the active window". Verified on Ubuntu 26.04 /
-// GNOME Shell 50 + Ghostty by sampling states across real focus switches
+// means "window is currently the active window". Verified on Ubuntu 26.04.1 LTS /
+// GNOME Shell 50.1 + Ghostty 1.3.0 by sampling states across real focus switches
 // (issues #83, #104).
 
 const ATSPI_ACTIVE_BIT_INDEX = 1
 
 const ATSPI_TERMINAL_PATH_MARKERS = ["mitchellh/ghostty"]
+
+// AT-SPI application `Name` values can differ from the Wayland/X app ids in
+// LINUX_TERMINAL_APPS (e.g. GNOME Terminal exposes `gnome-terminal-server`
+// on the accessibility bus). Keep bus-specific aliases here so the a11y
+// matcher sees the real names without polluting X11/Wayland id matching.
+const ATSPI_TERMINAL_APP_ALIASES = new Set<string>([
+  "gnome-terminal-server",
+])
 
 export function isGnomeLikeSession(env: NodeJS.ProcessEnv = process.env): boolean {
   const desktop = `${env.XDG_CURRENT_DESKTOP ?? ""} ${env.DESKTOP_SESSION ?? ""}`.toLowerCase()
@@ -211,7 +219,8 @@ export function isAtspiTerminalWindow(appName: string | null, windowPath: string
     return true
   }
   if (!appName) return false
-  return LINUX_TERMINAL_APPS.has(appName.trim().toLowerCase())
+  const normalized = appName.trim().toLowerCase()
+  return LINUX_TERMINAL_APPS.has(normalized) || ATSPI_TERMINAL_APP_ALIASES.has(normalized)
 }
 
 function getAtspiBusAddress(): string | null {
@@ -283,7 +292,12 @@ export function getGnomeAtspiActiveWindowKey(): string | null {
     if (!address) return null
     for (const ref of getAtspiTerminalWindowRefs(address)) {
       if (isAtspiWindowActive(address, ref.bus, ref.path) === true) {
-        return `atspi:${ref.path}`
+        // AT-SPI object paths are only unique within their D-Bus bus name
+        // (e.g. every app exposes `/org/a11y/atspi/accessible/1`), so the
+        // key must include the bus name to stay globally unique across
+        // terminal processes. `@` appears in neither alphabet, keeping the
+        // split unambiguous (unlike `:` — bus names look like `:1.10`).
+        return `atspi:${ref.bus}@${ref.path}`
       }
     }
     return null

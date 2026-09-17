@@ -435,11 +435,11 @@ This is independent of `command.minDuration`, which only controls whether the cu
 | Linux Wayland (Niri)                     | `niri msg --json focused-window`       | None                  | Tested                         |
 | Linux Wayland (Sway)                     | `swaymsg -t get_tree`                  | None                  | Untested                       |
 | Linux Wayland (KDE)                      | `kdotool`                              | `kdotool` installed | Tested                         |
-| Linux Wayland (GNOME)                    | AT-SPI (`gdbus` on the `org.a11y.Bus`) | `gdbus` installed   | Tested (Ubuntu 26.04 + Ghostty) |
+| Linux Wayland (GNOME)                    | AT-SPI (`gdbus` on the `org.a11y.Bus`) | `gdbus` installed   | Tested (Ubuntu 26.04.1 LTS + GNOME Shell 50.1 + Ghostty 1.3.0) |
 | Linux Wayland (river, dwl, Cosmic, etc.) | Not supported                            | -                     | Falls back to always notifying |
 | Windows                                  | `GetForegroundWindow()` via PowerShell | None                  | Untested                       |
 
-**GNOME Wayland**: GNOME exposes no compositor API for the focused window (`Introspect.GetWindows` and `Eval` are access-denied) and XWayland tools like `xdotool` cannot see native Wayland windows, so focus is read from the accessibility bus instead: the active terminal window is the one whose AT-SPI `ACTIVE` state bit is set. Ghostty is matched by its `/com/mitchellh/ghostty` AT-SPI path, other terminals by app name. With several terminal windows open, suppression compares against the window that was active at startup. Set `OPENCODE_NOTIFIER_DEBUG=1` to log the focus backend decision.
+**GNOME Wayland**: GNOME exposes no compositor API for the focused window (`Introspect.GetWindows` and `Eval` are access-denied) and XWayland tools like `xdotool` cannot see native Wayland windows, so focus is read from the accessibility bus instead: the active terminal window is the one whose AT-SPI `ACTIVE` state bit is set. Ghostty is matched by its `/com/mitchellh/ghostty` AT-SPI path, other terminals by app name (including the `gnome-terminal-server` AT-SPI alias). Window identity is `bus@path` since AT-SPI paths repeat across processes. Implemented and verified on Ubuntu 26.04.1 LTS + GNOME Shell 50.1 + Ghostty 1.3.0. With several terminal windows open, suppression compares against the window that was active at startup. Set `OPENCODE_NOTIFIER_DEBUG=1` to log the focus backend decision.
 
 **Unsupported compositors**: Wayland has no standard protocol for querying the focused window. Each compositor has its own IPC. Compositors without a backend (river, dwl, Cosmic, etc.) fall back to always notifying.
 
