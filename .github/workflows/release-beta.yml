@@ -1,0 +1,43 @@
+name: release-beta
+
+# Publishes to npm with the `beta` dist-tag. Runs ONLY on beta tags, never on
+# branch pushes or PRs. Release with:
+#   npm version 0.2.9-beta.1
+#   git push && git push --tags
+# Auth is OIDC trusted publishing: no tokens or secrets. One-time setup on
+# npmjs.com (package Settings -> Trusted Publisher -> GitHub Actions, repo
+# mohak34/opencode-notifier, workflow release-beta.yml, allow `npm publish`).
+
+on:
+  push:
+    tags:
+      - "v*-beta*"
+
+permissions:
+  id-token: write # required for npm OIDC trusted publishing
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun test
+      - run: bun run build
+
+      # setup-node writes the .npmrc that lets `npm publish` exchange the
+      # OIDC token. Publish itself must use the npm CLI (>= 11.5.1).
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: "https://registry.npmjs.org"
+
+      - run: npm install -g npm@latest
+      - run: npm publish --tag beta --provenance
