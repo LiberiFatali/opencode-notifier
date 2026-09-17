@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test"
-import { isLinuxTerminalFocused, isMacTerminalAppFocused, isTmuxPaneFocused, parseWezTermFocusedPaneId, isKDEJumpBackSupported, captureStartupWindowId, focusTerminal, getCachedWindowTitle, isWindowsTerminalFocused, buildOsascriptActivateAppArgs, findQdbusBinary, resolveQdbusBinary, isGnomeLikeSession, parseAtspiString, parseAtspiObjectRefs, parseAtspiStateActive, isAtspiTerminalWindow } from "./focus"
+import { isLinuxTerminalFocused, isMacTerminalAppFocused, isTmuxPaneFocused, parseWezTermFocusedPaneId, isKDEJumpBackSupported, captureStartupWindowId, focusTerminal, getCachedWindowTitle, isWindowsTerminalFocused, buildOsascriptActivateAppArgs, findQdbusBinary, resolveQdbusBinary, isGnomeLikeSession, getLinuxFocusBackendName, parseAtspiString, parseAtspiObjectRefs, parseAtspiStateActive, isAtspiTerminalWindow, isAtspiWindowRoleAccepted } from "./focus"
 
 describe("isMacTerminalAppFocused", () => {
   test("matches Terminal when TERM_PROGRAM is Apple_Terminal", () => {
@@ -342,6 +342,38 @@ describe("isGnomeLikeSession", () => {
     expect(isGnomeLikeSession({ XDG_CURRENT_DESKTOP: "KDE", KDE_SESSION_VERSION: "6" } as NodeJS.ProcessEnv)).toBe(false)
     expect(isGnomeLikeSession({ XDG_CURRENT_DESKTOP: "Hyprland" } as NodeJS.ProcessEnv)).toBe(false)
     expect(isGnomeLikeSession({} as NodeJS.ProcessEnv)).toBe(false)
+  })
+
+  test("matches whole desktop tokens, not substrings", () => {
+    expect(isGnomeLikeSession({ XDG_CURRENT_DESKTOP: "COSMIC" } as NodeJS.ProcessEnv)).toBe(false)
+    expect(isGnomeLikeSession({ XDG_CURRENT_DESKTOP: "mygnome" } as NodeJS.ProcessEnv)).toBe(false)
+    expect(isGnomeLikeSession({ XDG_CURRENT_DESKTOP: "GNOME" } as NodeJS.ProcessEnv)).toBe(true)
+  })
+})
+
+describe("getLinuxFocusBackendName", () => {
+  test("prefers compositor backends over gnome-atspi", () => {
+    expect(getLinuxFocusBackendName({ HYPRLAND_INSTANCE_SIGNATURE: "x", XDG_CURRENT_DESKTOP: "GNOME" } as NodeJS.ProcessEnv)).toBe("hyprland")
+    expect(getLinuxFocusBackendName({ KDE_SESSION_VERSION: "6", XDG_CURRENT_DESKTOP: "KDE" } as NodeJS.ProcessEnv)).toBe("kde")
+  })
+
+  test("reports gnome-atspi only for gnome-like sessions", () => {
+    expect(getLinuxFocusBackendName({ WAYLAND_DISPLAY: "wayland-0", XDG_CURRENT_DESKTOP: "GNOME" } as NodeJS.ProcessEnv)).toBe("gnome-atspi")
+    expect(getLinuxFocusBackendName({ WAYLAND_DISPLAY: "wayland-0", XDG_CURRENT_DESKTOP: "COSMIC" } as NodeJS.ProcessEnv)).toBe("wayland-unsupported")
+  })
+})
+
+describe("isAtspiWindowRoleAccepted", () => {
+  test("accepts top-level window roles", () => {
+    expect(isAtspiWindowRoleAccepted("window")).toBe(true)
+    expect(isAtspiWindowRoleAccepted("frame")).toBe(true)
+    expect(isAtspiWindowRoleAccepted("dialog")).toBe(true)
+  })
+
+  test("rejects unknown roles so detection fails open", () => {
+    expect(isAtspiWindowRoleAccepted(null)).toBe(false)
+    expect(isAtspiWindowRoleAccepted("")).toBe(false)
+    expect(isAtspiWindowRoleAccepted("menu")).toBe(false)
   })
 })
 

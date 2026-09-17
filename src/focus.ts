@@ -174,9 +174,22 @@ const ATSPI_TERMINAL_APP_ALIASES = new Set<string>([
   "gnome-terminal-server",
 ])
 
+const GNOME_LIKE_DESKTOPS = new Set(["gnome", "ubuntu", "pop"])
+
 export function isGnomeLikeSession(env: NodeJS.ProcessEnv = process.env): boolean {
   const desktop = `${env.XDG_CURRENT_DESKTOP ?? ""} ${env.DESKTOP_SESSION ?? ""}`.toLowerCase()
-  return desktop.includes("gnome") || desktop.includes("ubuntu") || desktop.includes("pop")
+  return desktop.split(/[:;\s]+/).some((token) => GNOME_LIKE_DESKTOPS.has(token))
+}
+
+export function getLinuxFocusBackendName(env: NodeJS.ProcessEnv = process.env): string {
+  if (env.HYPRLAND_INSTANCE_SIGNATURE) return "hyprland"
+  if (env.NIRI_SOCKET) return "niri"
+  if (env.SWAYSOCK) return "sway"
+  if (env.KDE_SESSION_VERSION) return "kde"
+  if (isGnomeLikeSession(env)) return "gnome-atspi"
+  if (env.DISPLAY) return "x11"
+  if (env.WAYLAND_DISPLAY) return "wayland-unsupported"
+  return "none"
 }
 
 export function parseAtspiString(output: string | null): string | null {
@@ -223,62 +236,90 @@ export function isAtspiTerminalWindow(appName: string | null, windowPath: string
   return LINUX_TERMINAL_APPS.has(normalized) || ATSPI_TERMINAL_APP_ALIASES.has(normalized)
 }
 
+const ATSPI_ROLES = new Set(["window", "frame", "dialog"])
+
+// Fail-open policy: only windows whose role we positively recognize as a
+// top-level window are terminal candidates. An unknown role (null) means the
+// lookup failed, so the window is excluded rather than risk suppressing a
+// notification for a window we cannot identify.
+export function isAtspiWindowRoleAccepted(role: string | null): boolean {
+  return role !== null && ATSPI_ROLES.has(role)
+}
+
+function callAtspi(
+  address: string,
+  dest: string,
+  path: string,
+  method: string,
+  args: readonly string[] = [],
+  timeoutMs: number = 500
+): string | null {
+  return execFileWithTimeout("gdbus", [
+    "call", "--address", address,
+    "--dest", dest,
+    "--object-path", path,
+    "--method", method,
+    ...args,
+  ], timeoutMs)
+}
+
+let cachedAtspiAddress: { address: string; at: number } | null = null
+const ATSPI_ADDRESS_CACHE_TTL_MS = 10_000
+
 function getAtspiBusAddress(): string | null {
+  const now = Date.now()
+  if (cachedAtspiAddress && now - cachedAtspiAddress.at < ATSPI_ADDRESS_CACHE_TTL_MS) {
+    return cachedAtspiAddress.address
+  }
+  // The session bus address is stable, but a stale cache must never hard-fail
+  // detection: every caller treats null as "unknown" and fails open.
+  cachedAtspiAddress = null
   const output = execFileWithTimeout("gdbus", [
     "call", "--session",
     "--dest", "org.a11y.Bus",
     "--object-path", "/org/a11y/bus",
     "--method", "org.a11y.Bus.GetAddress",
   ], 1000)
+  const address = parseAtspiString(output)
+  if (address) {
+    cachedAtspiAddress = { address, at: now }
+  }
+  return address
+}
+
+function getAtspiWindowRole(address: string, ref: AtspiObjectRef): string | null {
+  const output = callAtspi(address, ref.bus, ref.path, "org.a11y.atspi.Accessible.GetRoleName")
   return parseAtspiString(output)
 }
 
-function getAtspiWindowRole(address: string, appBus: string, windowPath: string): string | null {
-  const output = execFileWithTimeout("gdbus", [
-    "call", "--address", address,
-    "--dest", appBus,
-    "--object-path", windowPath,
-    "--method", "org.a11y.atspi.Accessible.GetRoleName",
-  ], 500)
-  return parseAtspiString(output)
-}
-
-function isAtspiWindowActive(address: string, appBus: string, windowPath: string): boolean | null {
-  const output = execFileWithTimeout("gdbus", [
-    "call", "--address", address,
-    "--dest", appBus,
-    "--object-path", windowPath,
-    "--method", "org.a11y.atspi.Accessible.GetState",
-  ], 500)
+function isAtspiWindowActive(address: string, ref: AtspiObjectRef): boolean | null {
+  const output = callAtspi(address, ref.bus, ref.path, "org.a11y.atspi.Accessible.GetState")
   return parseAtspiStateActive(output)
 }
 
 function getAtspiTerminalWindowRefs(address: string): AtspiObjectRef[] {
   const refs: AtspiObjectRef[] = []
-  const rootOutput = execFileWithTimeout("gdbus", [
-    "call", "--address", address,
-    "--dest", "org.a11y.atspi.Registry",
-    "--object-path", "/org/a11y/atspi/accessible/root",
-    "--method", "org.a11y.atspi.Accessible.GetChildren",
-  ], 1000)
+  const rootOutput = callAtspi(
+    address,
+    "org.a11y.atspi.Registry",
+    "/org/a11y/atspi/accessible/root",
+    "org.a11y.atspi.Accessible.GetChildren",
+    [],
+    1000
+  )
   for (const app of parseAtspiObjectRefs(rootOutput)) {
-    const appName = parseAtspiString(execFileWithTimeout("gdbus", [
-      "call", "--address", address,
-      "--dest", app.bus,
-      "--object-path", "/org/a11y/atspi/accessible/root",
-      "--method", "org.freedesktop.DBus.Properties.Get",
-      "org.a11y.atspi.Accessible", "Name",
-    ], 500))
-    const childrenOutput = execFileWithTimeout("gdbus", [
-      "call", "--address", address,
-      "--dest", app.bus,
-      "--object-path", app.path,
-      "--method", "org.a11y.atspi.Accessible.GetChildren",
-    ], 500)
+    const appName = parseAtspiString(callAtspi(
+      address,
+      app.bus,
+      "/org/a11y/atspi/accessible/root",
+      "org.freedesktop.DBus.Properties.Get",
+      ["org.a11y.atspi.Accessible", "Name"]
+    ))
+    const childrenOutput = callAtspi(address, app.bus, app.path, "org.a11y.atspi.Accessible.GetChildren")
     for (const child of parseAtspiObjectRefs(childrenOutput)) {
       if (!isAtspiTerminalWindow(appName, child.path)) continue
-      const role = getAtspiWindowRole(address, child.bus, child.path)?.toLowerCase()
-      if (role === "window" || role === "frame" || role === "dialog" || role === null) {
+      const role = getAtspiWindowRole(address, child)?.toLowerCase() ?? null
+      if (isAtspiWindowRoleAccepted(role)) {
         refs.push(child)
       }
     }
@@ -291,7 +332,7 @@ export function getGnomeAtspiActiveWindowKey(): string | null {
     const address = getAtspiBusAddress()
     if (!address) return null
     for (const ref of getAtspiTerminalWindowRefs(address)) {
-      if (isAtspiWindowActive(address, ref.bus, ref.path) === true) {
+      if (isAtspiWindowActive(address, ref) === true) {
         // AT-SPI object paths are only unique within their D-Bus bus name
         // (e.g. every app exposes `/org/a11y/atspi/accessible/1`), so the
         // key must include the bus name to stay globally unique across
@@ -567,7 +608,7 @@ export function isTerminalFocused(): boolean {
       tmuxPaneActive,
     })
     debugFocusState(
-      `linux focus: session=${process.env.XDG_SESSION_TYPE ?? "?"} desktop=${process.env.XDG_CURRENT_DESKTOP ?? process.env.DESKTOP_SESSION ?? "?"} cached=${cachedWindowId ?? "null"} current=${currentWindowId ?? "null"} tmux=${String(tmuxPaneActive)} focused=${focused}`
+      `linux focus: backend=${getLinuxFocusBackendName()} session=${process.env.XDG_SESSION_TYPE ?? "?"} desktop=${process.env.XDG_CURRENT_DESKTOP ?? process.env.DESKTOP_SESSION ?? "?"} cached=${cachedWindowId ?? "null"} current=${currentWindowId ?? "null"} tmux=${String(tmuxPaneActive)} focused=${focused}`
     )
     return focused
   } catch {
