@@ -239,7 +239,7 @@ function getSessionIDFromEvent(event: unknown): string | null {
   return getStringField(properties, "sessionID")
 }
 
-function getPermissionIDFromEvent(event: unknown): string | null {
+export function getPermissionIDFromEvent(event: unknown): string | null {
   const properties = getNestedRecord(event, "properties")
   const id = getStringField(properties, "id")
   if (id) {
@@ -247,6 +247,33 @@ function getPermissionIDFromEvent(event: unknown): string | null {
   }
   const request = getNestedRecord(event, "properties", "request")
   return getStringField(request, "id")
+}
+
+// Grace period letting an auto-approved request resolve before we check the
+// pending list. The permission.asked event always fires first (even when the
+// TUI/CLI auto-replies), so without this wait every request would look pending.
+export const PERMISSION_PENDING_GRACE_MS = 300
+
+// True when the request is still awaiting approval. Fails open: any lookup
+// failure means "unknown", and unknown must notify rather than stay silent.
+export async function isPermissionStillPending(client: unknown, permissionID: string): Promise<boolean> {
+  try {
+    // The v1 SDK client type exposes no permission.list API, so go through
+    // the raw HTTP client like the rest of this file goes through (event as any).
+    const inner = (client as any)?._client || (client as any)?.session?._client
+    if (!inner || typeof inner.get !== "function") {
+      return true
+    }
+    const listResponse = await inner.get({ url: "/permission" })
+    const body = listResponse?.data ?? listResponse
+    const pendingList = Array.isArray(body) ? body : Array.isArray(body?.data) ? body.data : null
+    if (!pendingList) {
+      return true
+    }
+    return pendingList.some((p: { id?: string }) => p?.id === permissionID)
+  } catch {
+    return true
+  }
 }
 
 interface SessionLifecycleInfo {
@@ -552,20 +579,8 @@ export const NotifierPlugin: Plugin = async ({ client, directory }) => {
         if (permissionID) {
           // Auto-approved requests are resolved immediately, so wait briefly
           // and only notify when the request is still pending.
-          await new Promise((resolve) => setTimeout(resolve, 300))
-          try {
-            const inner = (client as any)?._client || (client as any)?.session?._client
-            if (inner && typeof inner.get === "function") {
-              const listResponse = await inner.get({ url: "/permission" })
-              const body = listResponse?.data ?? listResponse
-              const pendingList = Array.isArray(body) ? body : Array.isArray(body?.data) ? body.data : null
-              if (pendingList) {
-                stillPending = pendingList.some((p: { id?: string }) => p?.id === permissionID)
-              }
-            }
-          } catch {
-            stillPending = true
-          }
+          await new Promise((resolve) => setTimeout(resolve, PERMISSION_PENDING_GRACE_MS))
+          stillPending = await isPermissionStillPending(client, permissionID)
         }
         // Claim the shared dedupe window only when a notification is actually
         // about to fire: a silently skipped auto-approved request must not mute a
