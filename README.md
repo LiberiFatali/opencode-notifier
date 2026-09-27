@@ -4,17 +4,41 @@ OpenCode plugin that plays sounds and sends system notifications when permission
 
 ## Quick Start
 
-Install the plugin via the CLI: `opencode plug -g @mohak34/opencode-notifier`.
+For OpenCode 1, add the package to `opencode.json`:
 
-Or add manually to your `opencode.json`:
+```json
+{
+  "plugin": ["@mohak34/opencode-notifier@latest"]
+}
+```
 
-  ```json
-  {
-    "plugin": ["@mohak34/opencode-notifier@latest"]
-  }
-  ```
+For OpenCode 2, use `plugins`:
 
-Restart OpenCode. Done.
+```json
+{
+  "plugins": ["@mohak34/opencode-notifier@latest"]
+}
+```
+
+Restart OpenCode. The package contains both implementations; you do not select a version manually. V2 loads the package's terminal component automatically in the interactive CLI.
+
+### OpenCode 2 delivery
+
+Sounds, desktop popups, terminal bells, Ghostty notifications, and focus detection run in the terminal client. Custom commands run once per event on the server, including when no terminal is open. This uses the existing `command` configuration; no external notification service is bundled.
+
+With a remote server, put sound and popup settings on your local computer and custom-command settings on the server. Script paths refer to the server's filesystem. Focus suppression applies to local alerts, not server commands. Each attached terminal receives alerts for its project.
+
+`opencode run` and Desktop/Web clients do not load this terminal component, so they receive no plugin sound, popup, or bell. Server commands still run. V1 delivery and its `enableOnDesktop` behavior are unchanged.
+
+V2 already includes a notification plugin. To avoid duplicate built-in alerts, add `"-opencode.notifications"` to the existing `plugins` list in `~/.config/opencode/cli.json`:
+
+```json
+{
+  "plugins": ["*", "-opencode.notifications"]
+}
+```
+
+Keep any other entries in that list. `plan_exit` remains a V1 event; V2 has no equivalent plan-ready signal, so that setting is inactive there. `client_connected` is best-effort: terminal startup for local alerts, server plugin startup for custom commands.
 
 ## What it does
 
@@ -169,7 +193,7 @@ Create `~/.config/opencode/opencode-notifier.json` with the defaults:
 - `showIcon` - Show OpenCode icon, Windows/Linux only (default: true)
 - `customIconPath` - Path to a custom icon for notifications. Useful on WSL where Windows paths are needed (default: null)
 - `suppressWhenFocused` - Skip notifications and sounds when the terminal is the active window (default: true). See [Focus detection](#focus-detection) for platform details
-- `enableOnDesktop` - Run the plugin on Desktop and Web clients (default: false). When false, the plugin only runs on CLI. Set to true if you want notifications/sounds/commands on Desktop/Web — useful if you want custom commands (Telegram, webhooks) but don't care about built-in notifications
+- `enableOnDesktop` - V1 only: run the plugin on Desktop and Web clients (default: false). V2 runs commands on the server and local alerts in its terminal component; this flag does not control V2 delivery.
 - `notificationSystem` - macOS only: `"osascript"`, `"node-notifier"`, or `"ghostty"` (default: "osascript"). Use `"ghostty"` if you're running Ghostty terminal for native OSC 9 notifications
 - `suppressGhosttySound` - macOS only: when `true` with `notificationSystem: "ghostty"`, skips the plugin's sound to avoid duplicating macOS Notification Center's default sound (default: false)
 - `minDuration` - Suppress `complete` and `subagent_complete` notifications when session finishes faster than this many seconds (default: 0). See [Minimum duration threshold](#minimum-duration-threshold)
@@ -198,7 +222,7 @@ Control each event separately:
 
 `user_cancelled` fires when you press ESC to abort a session. It's silent by default so intentional cancellations don't trigger error alerts. Set `sound` or `notification` to `true` if you want confirmation when cancelling.
 
-`session_started` fires when a new top-level session is created. `user_message` fires when a user message is submitted in a top-level session. `client_connected` fires shortly after the plugin initializes and is best-effort (there is no dedicated SDK connection event from plugin context).
+`session_started` fires when a new top-level session is created. `user_message` fires when a user message is submitted in a top-level session. `client_connected` is best-effort. On V1 it fires shortly after plugin initialization. On V2, terminal initialization triggers local alerts and server plugin initialization triggers the custom command; it does not track every client reconnection.
 
 The `command` property controls whether the custom command (see [Custom commands](#custom-commands)) runs for that event. Defaults to `true` for all events. Set it to `false` to suppress the command for specific events without disabling it globally.
 
@@ -648,7 +672,7 @@ This is a known Bun issue on Windows. Disable native notifications and use Power
 **Plugin installed but no notifications/sounds?**
 
 - Check `suppressWhenFocused`: when `true` (default), notifications are skipped while OpenCode terminal is focused. Set to `false` to always notify.
-- Check `enableOnDesktop`: defaults to `false`, so the plugin won't run on Desktop/Web clients. Set to `true` if you need it there.
+- On V1, check `enableOnDesktop`: it defaults to `false`. On V2, Desktop/Web and headless clients use server commands; local sounds and popups require the terminal component described above.
 - Verify the package version OpenCode cached:
   ```bash
   cat ~/.cache/opencode/packages/@mohak34/opencode-notifier@latest/node_modules/@mohak34/opencode-notifier/package.json | grep version
