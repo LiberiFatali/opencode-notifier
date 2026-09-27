@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-09-27
+
+### Fixed
+- Deleted child sessions no longer fire a top-level `complete` notification (#116; issue #108)
+  - Failed session lookups are treated as unknown and skipped instead of misclassified
+  - `session.deleted` keeps subagent ids as tombstones until the periodic cleanup prunes them
+- Notification side effects can no longer crash the host (#117; issue #25)
+  - The `event`, `permission.ask`, and `tool.execute.before` hooks fail silent on unexpected payloads
+  - Fire-and-forget command spawn is guarded against synchronous throws
+- Coalesced stacked sounds across events: max one sound per second (#119; issue #52)
+  - Events with no sound file no longer consume the shared slot
+- Locked Windows toast options to the `appName` key (regression test; issue #114)
+
 ## [0.3.0-beta.0] - 2026-09-21
 
 ### Added
