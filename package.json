@@ -21,7 +21,7 @@
     "logos"
   ],
   "scripts": {
-    "build": "bun build src/index.ts --outdir dist --target node --external node-notifier",
+    "build": "bun build src/index.ts src/tui.ts --outdir dist --target node --external node-notifier && tsc --emitDeclarationOnly",
     "prepublishOnly": "bun run build",
     "typecheck": "tsc --noEmit",
     "test": "bun test"
@@ -39,11 +39,36 @@
   },
   "devDependencies": {
     "@opencode-ai/plugin": "^1.18.25",
+    "@opencode/client": "^2.0.18",
+    "@opencode/plugin": "^2.0.18",
     "@types/node": "^22.0.0",
     "@types/node-notifier": "^8.0.5",
     "typescript": "^5.0.0"
   },
   "peerDependencies": {
-    "@opencode-ai/plugin": ">=1.17.0"
+    "@opencode-ai/plugin": ">=1.17.0 <2",
+    "@opencode/client": ">=2.0.18 <3",
+    "@opencode/plugin": ">=2.0.18 <3"
+  },
+  "peerDependenciesMeta": {
+    "@opencode-ai/plugin": {
+      "optional": true
+    },
+    "@opencode/client": {
+      "optional": true
+    },
+    "@opencode/plugin": {
+      "optional": true
+    }
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./tui": {
+      "types": "./dist/tui.d.ts",
+      "import": "./dist/tui.js"
+    }
   }
 }
