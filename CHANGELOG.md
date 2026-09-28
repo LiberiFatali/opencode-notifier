@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.4.1-beta.0] - 2026-09-28
+
+### Added
+
+- Published the v0.4.0 code as v0.4.1-beta.0 for users on npm’s `beta` dist-tag.
+
 ## [0.4.0] - 2026-09-28
 
 ### Added
