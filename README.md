@@ -679,6 +679,16 @@ This is a known Bun issue on Windows. Disable native notifications and use Power
   ```
   If you use `@beta` or a pinned version, replace `latest` in the path with `beta` or the exact version.
 
+## TypeScript imports
+
+Loading this plugin through OpenCode configuration does not require installing SDKs separately. If a TypeScript project imports the package directly, its declarations reference both OpenCode SDK generations. Install the optional type peers in that project:
+
+```bash
+bun add -d '@opencode-ai/plugin@^1.18.25' '@opencode/plugin@^2.0.18' '@opencode/client@^2.0.18'
+```
+
+These peers are optional to keep runtime-only installs lightweight. They are not automatically installed, so a V1-only TypeScript project importing the dual entrypoint also needs the V2 type peers. Adding peer metadata alone does not resolve missing type packages.
+
 ## Changelog
 
 See [CHANGELOG.md](CHANGELOG.md)
