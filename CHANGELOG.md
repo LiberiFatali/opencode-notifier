@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-28
+
+### Added
+
+- OpenCode 2 support alongside OpenCode 1 in the same package (#113, #123).
+- V2 terminal component for local sounds, desktop popups, bells, and focus detection. Existing custom notification commands run on the server, including when no terminal is open.
+
+### Fixed
+
+- V2 event handling for completion, errors, cancellation, questions, and pending permissions (#123).
+- V2 duration thresholds, subagent names, duplicate user-message alerts, and project switching. Deleted child sessions retain their classification (#123).
+- Published TypeScript declarations now declare their SDK dependencies as optional peers. Runtime users do not need to install the SDKs (#123).
+
+### Upgrade notes
+
+- OpenCode 1 keeps using the `plugin` configuration key. OpenCode 2 uses `plugins` and loads the terminal component automatically.
+- V2 local alerts require the interactive terminal. Headless runs and Desktop/Web clients can still use server commands.
+- To avoid duplicate V2 alerts, add `"-opencode.notifications"` to your existing `plugins` list in `~/.config/opencode/cli.json`.
+- `plan_exit` remains available on V1 and is inactive on V2. Direct TypeScript consumers of the dual entrypoint need both SDK generations installed, as documented in the README.
+
+### Contributors
+
+- Thanks to @paterkleomenis for the original dual-version implementation in #113. Their commit is preserved in #123.
+
 ## [0.3.1] - 2026-09-27
 
 ### Fixed
