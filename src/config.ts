@@ -58,6 +58,7 @@ export interface NotifierConfig {
   showIcon: boolean
   customIconPath: string | null
   suppressWhenFocused: boolean
+  focusOnClick: boolean
   enableOnDesktop: boolean
   notificationSystem: "osascript" | "node-notifier" | "ghostty"
   suppressGhosttySound: boolean
@@ -67,6 +68,7 @@ export interface NotifierConfig {
   deferCompleteUntilChildrenIdle: boolean
   deferredCompleteTimeout: number
   command: CommandConfig
+  onClickCommand: Pick<CommandConfig, "enabled" | "path" | "args">
   events: {
     permission: EventConfig
     complete: EventConfig
@@ -139,6 +141,7 @@ const DEFAULT_CONFIG: NotifierConfig = {
   showIcon: true,
   customIconPath: null,
   suppressWhenFocused: true,
+  focusOnClick: true,
   enableOnDesktop: false,
   notificationSystem: "osascript",
   suppressGhosttySound: false,
@@ -156,6 +159,7 @@ const DEFAULT_CONFIG: NotifierConfig = {
     path: "",
     minDuration: 0,
   },
+  onClickCommand: { enabled: false, path: "" },
   events: {
     permission: { ...DEFAULT_EVENT_CONFIG },
     complete: { ...DEFAULT_EVENT_CONFIG },
@@ -263,6 +267,17 @@ function parseVolume(value: unknown, defaultVolume: number): number {
   return value
 }
 
+function parseCommandConfig(value: unknown): CommandConfig {
+  const command = value && typeof value === "object" ? value as Record<string, unknown> : {}
+  return {
+    enabled: command.enabled === true,
+    path: typeof command.path === "string" ? command.path : "",
+    args: Array.isArray(command.args) ? command.args.filter((arg): arg is string => typeof arg === "string") : undefined,
+    minDuration: typeof command.minDuration === "number" && Number.isFinite(command.minDuration) && command.minDuration > 0
+      ? command.minDuration : 0,
+  }
+}
+
 export function loadConfig(): NotifierConfig {
   const configPath = getConfigPath()
 
@@ -285,18 +300,6 @@ export function loadConfig(): NotifierConfig {
       bell: globalBell,
     }
 
-    const userCommand = userConfig.command ?? {}
-    const commandArgs = Array.isArray(userCommand.args)
-      ? userCommand.args.filter((arg: unknown) => typeof arg === "string")
-      : undefined
-
-    const commandMinDuration =
-      typeof userCommand.minDuration === "number" &&
-      Number.isFinite(userCommand.minDuration) &&
-      userCommand.minDuration > 0
-        ? userCommand.minDuration
-        : 0
-
     return {
       sound: globalSound,
       notification: globalNotification,
@@ -311,6 +314,7 @@ export function loadConfig(): NotifierConfig {
       showIcon: userConfig.showIcon ?? DEFAULT_CONFIG.showIcon,
       customIconPath: userConfig.customIconPath ?? DEFAULT_CONFIG.customIconPath,
       suppressWhenFocused: userConfig.suppressWhenFocused ?? DEFAULT_CONFIG.suppressWhenFocused,
+      focusOnClick: typeof userConfig.focusOnClick === "boolean" ? userConfig.focusOnClick : DEFAULT_CONFIG.focusOnClick,
       enableOnDesktop: typeof userConfig.enableOnDesktop === "boolean" ? userConfig.enableOnDesktop : DEFAULT_CONFIG.enableOnDesktop,
       notificationSystem:
         userConfig.notificationSystem === "node-notifier"
@@ -336,12 +340,8 @@ export function loadConfig(): NotifierConfig {
       deferredCompleteTimeout: typeof userConfig.deferredCompleteTimeout === "number"
         && Number.isFinite(userConfig.deferredCompleteTimeout) && userConfig.deferredCompleteTimeout > 0
         ? Math.min(userConfig.deferredCompleteTimeout, 2_147_483_647) : DEFAULT_CONFIG.deferredCompleteTimeout,
-      command: {
-        enabled: typeof userCommand.enabled === "boolean" ? userCommand.enabled : DEFAULT_CONFIG.command.enabled,
-        path: typeof userCommand.path === "string" ? userCommand.path : DEFAULT_CONFIG.command.path,
-        args: commandArgs,
-        minDuration: commandMinDuration,
-      },
+      command: parseCommandConfig(userConfig.command),
+      onClickCommand: parseCommandConfig(userConfig.onClickCommand),
       events: {
         permission: parseEventConfig(userConfig.events?.permission ?? userConfig.permission, defaultWithGlobal),
         complete: parseEventConfig(userConfig.events?.complete ?? userConfig.complete, defaultWithGlobal),

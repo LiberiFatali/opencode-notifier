@@ -7,7 +7,7 @@ const DEBOUNCE_MS = 1000
 
 const platform = os.type()
 
-let platformNotifier: any
+let platformNotifier: { notify(notification: notifier.Notification, callback: notifier.NotificationCallback): unknown } = notifier
 
 if (platform === "Windows_NT" || isWsl) {
   const { WindowsToaster } = notifier
@@ -74,11 +74,12 @@ function sendLinuxNotificationDirect(
   timeout: number,
   iconPath?: string,
   grouping: boolean = true,
-  onAction?: (action: NotificationAction) => void
+  onAction?: (action: NotificationAction) => void,
+  actionLabel: string = LINUX_FOCUS_ACTION_LABEL
 ): Promise<void> {
   return new Promise((resolve) => {
     if (onAction) {
-      sendLinuxNotificationWithActions(title, message, timeout, iconPath, grouping, onAction)
+      sendLinuxNotificationWithActions(title, message, timeout, iconPath, grouping, onAction, actionLabel)
         .then(() => resolve())
         .catch(() => resolve())
       return
@@ -122,7 +123,8 @@ async function sendLinuxNotificationWithActions(
   timeout: number,
   iconPath?: string,
   grouping: boolean = true,
-  onAction?: (action: NotificationAction) => void
+  onAction?: (action: NotificationAction) => void,
+  actionLabel: string = LINUX_FOCUS_ACTION_LABEL
 ): Promise<void> {
   const args: string[] = ["--app-name", "opencode"]
 
@@ -140,7 +142,7 @@ async function sendLinuxNotificationWithActions(
   // and still keep replace-id working.
   args.push("--print-id")
 
-  args.push("--action", `${LINUX_FOCUS_ACTION_KEY}=${LINUX_FOCUS_ACTION_LABEL}`)
+  args.push("--action", `${LINUX_FOCUS_ACTION_KEY}=${actionLabel}`)
 
   args.push("--", title, message)
 
@@ -277,7 +279,8 @@ export async function sendNotification(
   notificationSystem: "osascript" | "node-notifier" | "ghostty" = "osascript",
   linuxGrouping: boolean = true,
   onClick?: () => void,
-  windowsAppID?: string
+  windowsAppID?: string,
+  clickActionLabel: string = LINUX_FOCUS_ACTION_LABEL
 ): Promise<void> {
   const now = Date.now()
   if (lastNotificationTime[message] && now - lastNotificationTime[message] < DEBOUNCE_MS) {
@@ -297,7 +300,7 @@ export async function sendNotification(
   if (platform === "Darwin") {
     if (notificationSystem === "node-notifier") {
       return new Promise((resolve) => {
-        const notificationOptions: any = {
+        const notificationOptions = {
           title: title,
           message: message,
           timeout: timeout,
@@ -306,7 +309,10 @@ export async function sendNotification(
 
         notifier.notify(
           notificationOptions,
-          () => {
+          (_error, response) => {
+            if (onClick && response === "activate") {
+              try { onClick() } catch {}
+            }
             resolve()
           }
         )
@@ -329,13 +335,13 @@ export async function sendNotification(
           linuxNotifySendSupportsReplace = await detectNotifySendCapabilities()
         }
         if (linuxNotifySendSupportsReplace) {
-          return sendLinuxNotificationDirect(title, message, timeout, iconPath, true, () => onClick())
+          return sendLinuxNotificationDirect(title, message, timeout, iconPath, true, () => onClick(), clickActionLabel)
         }
       }
 
       // Fallback without grouping so action click still works
       // even when --replace-id is unavailable or disabled.
-      return sendLinuxNotificationDirect(title, message, timeout, iconPath, false, () => onClick())
+      return sendLinuxNotificationDirect(title, message, timeout, iconPath, false, () => onClick(), clickActionLabel)
     }
 
     if (linuxGrouping) {
@@ -349,13 +355,13 @@ export async function sendNotification(
   }
 
   return new Promise((resolve) => {
-    const notificationOptions: any = buildWindowsNotificationOptions(title, message, timeout, iconPath, windowsAppID)
+    const notificationOptions = buildWindowsNotificationOptions(title, message, timeout, iconPath, windowsAppID)
 
     platformNotifier.notify(
       notificationOptions,
-      (err: any, response: any, metadata: any) => {
-        if (onClick && metadata?.activationType === "default") {
-          onClick()
+      (_error, response, metadata) => {
+        if (onClick && (response === "activate" || metadata?.activationType === "default" || metadata?.activationType === "activated")) {
+          try { onClick() } catch {}
         }
         resolve()
       }

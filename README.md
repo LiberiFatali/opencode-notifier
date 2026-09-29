@@ -26,7 +26,7 @@ Restart OpenCode. The package contains both implementations; you do not select a
 
 Sounds, desktop popups, terminal bells, Ghostty notifications, and focus detection run in the terminal client. Custom commands run once per event on the server, including when no terminal is open. This uses the existing `command` configuration; no external notification service is bundled.
 
-With a remote server, put sound and popup settings on your local computer and custom-command settings on the server. Script paths refer to the server's filesystem. Focus suppression applies to local alerts, not server commands. Each attached terminal receives alerts for its project.
+With a remote server, put sound and popup settings on your local computer and custom-command settings on the server. Event-command script paths refer to the server's filesystem. Click-command paths refer to the computer displaying the notification. Focus suppression applies to local alerts, not server commands. Each attached terminal receives alerts for its project.
 
 `opencode run` and Desktop/Web clients do not load this terminal component, so they receive no plugin sound, popup, or bell. Server commands still run. V1 delivery and its `enableOnDesktop` behavior are unchanged.
 
@@ -98,6 +98,7 @@ Create `~/.config/opencode/opencode-notifier.json` with the defaults:
   "showIcon": true,
   "customIconPath": null,
   "suppressWhenFocused": true,
+  "focusOnClick": true,
   "enableOnDesktop": false,
   "notificationSystem": "osascript",
   "suppressGhosttySound": false,
@@ -327,7 +328,7 @@ Set per-event volume from `0` to `1`:
 
 ### Custom commands
 
-Run your own script when something happens. Use `{event}`, `{message}`, `{sessionTitle}`, `{sessionID}`, `{agentName}`, `{projectName}`, `{timestamp}`, and `{turn}` as placeholders:
+`command` runs a script when an event occurs. On V2 this runs on the server, even without a terminal attached. Use `{event}`, `{message}`, `{sessionTitle}`, `{sessionID}`, `{agentName}`, `{projectName}`, `{timestamp}`, and `{turn}` as placeholders:
 
 ```json
 {
@@ -353,6 +354,25 @@ inside a `sh -c`, `bash -c`, `powershell -Command`, or similar script string.
 Use a wrapper script and pass the tokens as separate arguments instead.
 Custom commands run with the same user permissions as OpenCode, so only enable
 scripts you trust.
+
+#### Run a command when clicking a notification
+
+`onClickCommand` runs locally when you activate a notification, separately from the event-time `command`. It is disabled by default. It accepts `enabled`, `path`, and `args` with the same placeholders. The arguments keep the originating notification's session context, even if you switch sessions before clicking.
+
+```json
+{
+  "focusOnClick": false,
+  "onClickCommand": {
+    "enabled": true,
+    "path": "/path/to/focus-opencode",
+    "args": ["{sessionID}", "{projectName}"]
+  }
+}
+```
+
+On Linux, use the explicit **Run command** action button; popup body clicks are not reliably delivered. The notification daemon must support actions and `notify-send` must support `--action`. The click listener expires after `timeout` plus one second. Windows toasts and macOS `node-notifier` deliver their activation callback; AppleScript and Ghostty OSC notifications do not support this command.
+
+`focusOnClick` defaults to `true` and enables the built-in KDE/GNOME jump-back when available. Set it to `false` for a script-only action. When both are enabled, clicking runs your script and focuses the terminal. On V2, configure click commands in the local terminal's configuration and event commands on the server. `events.<event>.command` controls event commands only; a click command is available for any enabled popup.
 
 #### Example: Log events to a file
 

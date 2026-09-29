@@ -1,7 +1,7 @@
 import { basename } from "path"
 import { loadConfig } from "./config"
 import type { EventType, NotifierConfig } from "./config"
-import { extractAgentNameFromSessionTitle, handleEvent, shouldResolveAgentNameForEvent } from "./delivery"
+import { extractAgentNameFromSessionTitle, handleEvent, shouldResolveSessionContextForEvent } from "./delivery"
 import { shouldSuppressPermissionAlert, prunePermissionAlertState } from "./permission-dedupe"
 
 // Allow immediate auto-approval to settle before checking the pending list.
@@ -76,7 +76,7 @@ export function createNotifier(access: SessionAccess, directory: string, deliver
     }
     let sessionTitle = title ?? null
     let agentName: string | null = null
-    if (!lifecycleEvent && sessionID && ((!sessionTitle && current.showSessionTitle) || shouldResolveAgentNameForEvent(current, event))) {
+    if (sessionID && ((!sessionTitle && current.showSessionTitle) || shouldResolveSessionContextForEvent(current, event))) {
       const info = await access.info(sessionID)
       sessionTitle ??= info.title
       agentName = info.agentName ?? null

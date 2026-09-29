@@ -56,6 +56,21 @@ describe("Config", () => {
     expect(config.notificationSystem).toBe("osascript")
   })
 
+  test("click commands default off and validate executable arguments", async () => {
+    const { loadConfig } = await import("./config")
+    expect(loadConfig().onClickCommand.enabled).toBe(false)
+    expect(loadConfig().focusOnClick).toBe(true)
+    writeFileSync(testConfigPath, JSON.stringify({
+      focusOnClick: false,
+      onClickCommand: { enabled: true, path: "/script", args: ["{sessionID}", 42, null] },
+    }))
+    expect(loadConfig().focusOnClick).toBe(false)
+    expect(loadConfig().onClickCommand).toMatchObject({ enabled: true, path: "/script", args: ["{sessionID}"] })
+    writeFileSync(testConfigPath, JSON.stringify({ focusOnClick: "false", onClickCommand: { enabled: "true", path: 42, args: false } }))
+    expect(loadConfig().focusOnClick).toBe(true)
+    expect(loadConfig().onClickCommand).toMatchObject({ enabled: false, path: "", args: undefined })
+  })
+
   test("loadConfig parses existing config file", async () => {
     const testConfig = {
       sound: false,
