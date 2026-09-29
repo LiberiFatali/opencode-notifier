@@ -172,7 +172,9 @@ export const NotifierPlugin: Plugin = async ({ client, directory }) => {
     },
     "tool.execute.before": async (input) => {
       try {
-        if (input.tool === "question" || input.tool === "plan_exit") await notifier.notify(input.tool)
+        if (input.tool === "question" || input.tool === "plan_exit") {
+          await notifier.notify(input.tool, getStringField(asRecord(input), "sessionID"))
+        }
       } catch {}
     },
   }
