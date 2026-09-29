@@ -327,7 +327,7 @@ Set per-event volume from `0` to `1`:
 
 ### Custom commands
 
-Run your own script when something happens. Use `{event}`, `{message}`, `{sessionTitle}`, `{agentName}`, `{projectName}`, `{timestamp}`, and `{turn}` as placeholders:
+Run your own script when something happens. Use `{event}`, `{message}`, `{sessionTitle}`, `{sessionID}`, `{agentName}`, `{projectName}`, `{timestamp}`, and `{turn}` as placeholders:
 
 ```json
 {
@@ -342,8 +342,10 @@ Run your own script when something happens. Use `{event}`, `{message}`, `{sessio
 
 - `enabled` - Turn command on/off
 - `path` - Path to your script/executable
-- `args` - Arguments to pass, can use `{event}`, `{message}`, `{sessionTitle}`, `{agentName}`, `{projectName}`, `{timestamp}`, and `{turn}` tokens
+- `args` - Arguments to pass, can use `{event}`, `{message}`, `{sessionTitle}`, `{sessionID}`, `{agentName}`, `{projectName}`, `{timestamp}`, and `{turn}` tokens
 - `minDuration` - Skip if response was quick, avoids spam (seconds)
+
+`{sessionID}` is the ID of the session that triggered the event (e.g. `ses_0048b8aa...`), so a script can tell concurrent sessions in the same project apart. It is empty for events without a session, such as `client_connected`.
 
 Token values are passed as argv values and are not shell-escaped for use inside
 script source. Do not put `{message}`, `{sessionTitle}`, or other dynamic tokens
