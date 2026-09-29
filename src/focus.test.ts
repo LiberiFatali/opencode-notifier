@@ -327,6 +327,9 @@ describe("resolveQdbusBinary", () => {
 
 describe("focusTerminal", () => {
   test("does not throw on unsupported platforms", async () => {
+    // On macOS focusTerminal activates real terminal apps through osascript, which
+    // launches Terminal.app when it is not running, so skip it there.
+    if (process.platform === "darwin") return
     await expect(focusTerminal()).resolves.toBeUndefined()
   })
 })
