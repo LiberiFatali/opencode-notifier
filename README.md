@@ -475,6 +475,8 @@ This is independent of `command.minDuration`, which only controls whether the cu
 
 **WezTerm panes**: When running in WezTerm with `WEZTERM_PANE` set, focus suppression is pane-aware via `wezterm cli list-clients --format json`. This means notifications are shown when you switch to a different WezTerm pane/tab.
 
+**Zellij panes**: With `ZELLIJ_SESSION_NAME` and `ZELLIJ_PANE_ID` set, suppression also checks `zellij --session <name> action list-clients`. Switching away from the OpenCode pane or tab allows notifications even when the terminal window stays focused. With multiple clients, the pane counts as focused if any attached client focuses it. A missing tool, failed query, or detached session allows notifications. On Linux without window detection, pane focus is a best-effort fallback, as with tmux.
+
 **Fail-open design**: If detection fails for any reason (missing tools, unknown compositor, permissions), it falls back to always notifying. It never silently eats your notifications.
 
 If you test on a platform marked "Untested" and it works (or doesn't), please open an issue and let us know.

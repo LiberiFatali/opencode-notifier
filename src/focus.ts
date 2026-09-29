@@ -529,17 +529,38 @@ export function isTmuxPaneFocused(tmuxPane: string | null | undefined, probeResu
   return Number(sessionAttached) > 0 && windowActive === "1" && paneActive === "1"
 }
 
+export function isZellijPaneFocused(paneID: string | null | undefined, clientsOutput: string | null): boolean {
+  if (!paneID || !clientsOutput) return false
+  const match = /^(?:terminal_)?(\d+)$/.exec(paneID)
+  if (!match) return false
+  const target = `terminal_${match[1]}`
+  return clientsOutput.split(/\r?\n/).some(line => {
+    const fields = line.trim().split(/\s+/)
+    return /^\d+$/.test(fields[0]) && fields[1] === target
+  })
+}
+
+function isZellijPaneActive(): boolean {
+  const session = process.env.ZELLIJ_SESSION_NAME
+  const pane = process.env.ZELLIJ_PANE_ID
+  if (!session || !pane) return false
+  return isZellijPaneFocused(pane, execFileWithTimeout("zellij", ["--session", session, "action", "list-clients"], 1000))
+}
+
 export function isLinuxTerminalFocused(params: {
   cachedWindowId: string | null
   currentWindowId: string | null
   wezTermPaneActive: boolean
   tmuxPaneActive: boolean | null
+  zellijPaneActive?: boolean | null
 }): boolean {
-  const { cachedWindowId, currentWindowId, wezTermPaneActive, tmuxPaneActive } = params
+  const { cachedWindowId, currentWindowId, wezTermPaneActive, tmuxPaneActive, zellijPaneActive } = params
+  if (zellijPaneActive === false) return false
 
   if (!cachedWindowId) {
     if (!wezTermPaneActive) return false
     if (tmuxPaneActive !== null) return tmuxPaneActive
+    if (zellijPaneActive != null) return zellijPaneActive
     return false
   }
 
@@ -577,6 +598,8 @@ function isWezTermPaneActive(): boolean {
 
 export function isTerminalFocused(): boolean {
   try {
+    const zellijPaneActive = process.env.ZELLIJ_SESSION_NAME || process.env.ZELLIJ_PANE_ID ? isZellijPaneActive() : null
+    if (zellijPaneActive === false) return false
     if (process.platform === "darwin") {
       const frontmostAppName = getMacOSFrontmostAppName()
       if (!isMacTerminalAppFocused(frontmostAppName, process.env)) {
@@ -606,9 +629,10 @@ export function isTerminalFocused(): boolean {
       currentWindowId,
       wezTermPaneActive: isWezTermPaneActive(),
       tmuxPaneActive,
+      zellijPaneActive,
     })
     debugFocusState(
-      `linux focus: backend=${getLinuxFocusBackendName()} session=${process.env.XDG_SESSION_TYPE ?? "?"} desktop=${process.env.XDG_CURRENT_DESKTOP ?? process.env.DESKTOP_SESSION ?? "?"} cached=${cachedWindowId ?? "null"} current=${currentWindowId ?? "null"} tmux=${String(tmuxPaneActive)} focused=${focused}`
+      `linux focus: backend=${getLinuxFocusBackendName()} session=${process.env.XDG_SESSION_TYPE ?? "?"} desktop=${process.env.XDG_CURRENT_DESKTOP ?? process.env.DESKTOP_SESSION ?? "?"} cached=${cachedWindowId ?? "null"} current=${currentWindowId ?? "null"} tmux=${String(tmuxPaneActive)} zellij=${String(zellijPaneActive)} focused=${focused}`
     )
     return focused
   } catch {
