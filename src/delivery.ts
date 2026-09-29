@@ -16,7 +16,7 @@ import { sendNotification } from "./notify"
 import { playSound } from "./sound"
 import { ringBell } from "./bell"
 import { runCommand } from "./command"
-import { isTerminalFocused, focusTerminal, isKDEJumpBackSupported } from "./focus"
+import { isTerminalFocused, focusTerminal, isTerminalJumpBackSupported } from "./focus"
 
 let globalTurnCount: number | null = null
 
@@ -126,7 +126,7 @@ export async function handleEvent(
   if (notificationEnabled) {
     const title = getNotificationTitle(config, projectName)
     const iconPath = getIconPath(config)
-    const onNotificationClick = isKDEJumpBackSupported() ? () => void focusTerminal() : undefined
+    const onNotificationClick = isTerminalJumpBackSupported() ? () => void focusTerminal() : undefined
     promises.push(sendNotification(title, message, config.timeout, iconPath, config.notificationSystem, config.linux.grouping, onNotificationClick, config.windows.appID))
   }
 
@@ -159,4 +159,3 @@ export async function handleEvent(
 
   await Promise.allSettled(promises)
 }
-

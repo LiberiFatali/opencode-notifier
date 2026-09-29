@@ -18,7 +18,8 @@
   "files": [
     "dist",
     "sounds",
-    "logos"
+    "logos",
+    "gnome-shell-extension"
   ],
   "scripts": {
     "build": "bun build src/index.ts src/tui.ts --outdir dist --target node --external node-notifier && tsc --emitDeclarationOnly",

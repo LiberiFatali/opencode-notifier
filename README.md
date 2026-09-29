@@ -507,14 +507,28 @@ With grouping enabled, each new notification replaces the previous one so you on
 
 Works with all major notification daemons (GNOME, dunst, mako, swaync, etc.) on both X11 and Wayland.
 
-## KDE Plasma: Jump back to terminal from notification
+## Linux: Jump back to terminal from notification
 
-On KDE Plasma/Wayland, clicking the popup body is not consistently delivered as a notification activation event.This plugin uses an explicit notification action button instead:
+On KDE Plasma and GNOME Wayland, use the explicit **Jump to terminal** action button. Clicking the popup body is not reliably routed back to the plugin.
 
-- **Jump to terminal** (action button on the popup card, or in notification history)
+On KDE with `kdotool` installed, the plugin captures the startup terminal window ID and jumps back to that window.
 
-When clicked, the plugin runs its terminal-focus path. On KDE with `kdotool` installed, it auto-captures the startup terminal window ID and jumps back to that pinned window.
-The action button is only enabled on Linux KDE sessions where `kdotool` is available.
+GNOME Wayland requires the bundled **OpenCode Notifier Jump Back** Shell extension. GTK4 does not implement AT-SPI `GrabFocus`, so focus detection alone cannot activate a Ghostty window. The extension captures a window ID scoped to its current lifetime and uses GNOME Shell's window activation API to select the exact window and workspace.
+
+From this repository or the installed npm package directory, install the extension files:
+
+```sh
+mkdir -p ~/.local/share/gnome-shell/extensions/opencode-notifier@mohak34.github.io
+cp gnome-shell-extension/extension.js gnome-shell-extension/metadata.json ~/.local/share/gnome-shell/extensions/opencode-notifier@mohak34.github.io/
+```
+
+Log out and back in so Shell discovers the extension, then enable it and restart OpenCode in the target terminal:
+
+```sh
+gnome-extensions enable opencode-notifier@mohak34.github.io
+```
+
+The extension targets GNOME Shell 45 through 50. The action appears when the bridge captured a startup window; without it, existing AT-SPI focus suppression still works. GNOME jump-back needs validation on a real desktop. Notification delivery returns once `notify-send` prints the notification ID. The click listener lasts for the configured notification `timeout` plus a one-second grace period, then closes even if the notification daemon ignores expiry.
 
 ## Updating
 

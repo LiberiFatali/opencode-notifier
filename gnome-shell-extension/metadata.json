@@ -1,0 +1,7 @@
+{
+  "uuid": "opencode-notifier@mohak34.github.io",
+  "name": "OpenCode Notifier Jump Back",
+  "description": "Allows OpenCode Notifier notification actions to activate the terminal window captured at startup.",
+  "shell-version": ["45", "46", "47", "48", "49", "50"],
+  "url": "https://github.com/mohak34/opencode-notifier"
+}

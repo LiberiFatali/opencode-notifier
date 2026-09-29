@@ -148,6 +148,10 @@ async function sendLinuxNotificationWithActions(
     const child = spawn("notify-send", args, { stdio: ["ignore", "pipe", "pipe"] })
 
     let stdout = ""
+    let clicked = false
+    // Some daemons ignore expiry. Bound each action listener so it cannot accumulate forever.
+    const expiry = setTimeout(() => child.kill(), Math.max(1, timeout) * 1000 + 1000)
+    expiry.unref()
 
     const consumeStdout = () => {
       const lines = stdout.split(/\r?\n/)
@@ -169,15 +173,13 @@ async function sendLinuxNotificationWithActions(
           if (grouping) {
             lastLinuxNotificationId = parsed.id
           }
+          resolve()
           continue
         }
 
-        if (onAction) {
-          if (parsed.action === "focus") {
-            onAction("focus")
-          } else if (parsed.action === "close") {
-            onAction("close")
-          }
+        if (onAction && parsed.action === "focus" && !clicked) {
+          clicked = true
+          try { onAction("focus") } catch {}
         }
       }
     }
@@ -186,8 +188,10 @@ async function sendLinuxNotificationWithActions(
       stdout += data.toString()
       consumeStdout()
     })
+    child.stderr?.resume()
 
     child.on("close", () => {
+      clearTimeout(expiry)
       // Flush any remaining buffered stdout when process exits.
       if (stdout.trim().length > 0) {
         stdout += "\n"
@@ -197,6 +201,7 @@ async function sendLinuxNotificationWithActions(
     })
 
     child.on("error", () => {
+      clearTimeout(expiry)
       resolve()
     })
   })

@@ -148,7 +148,7 @@ function getLinuxWaylandActiveWindowId(): string | null {
   if (env.NIRI_SOCKET) return getNiriActiveWindowId()
   if (env.SWAYSOCK) return getSwayActiveWindowId()
   if (env.KDE_SESSION_VERSION) return firstNumericWindowId(execWithTimeout("kdotool getactivewindow"))
-  if (isGnomeLikeSession(env)) return getGnomeAtspiActiveWindowKey()
+  if (isGnomeLikeSession(env)) return getGnomeShellWindowKey() ?? getGnomeAtspiActiveWindowKey()
   return null
 }
 
@@ -345,6 +345,27 @@ export function getGnomeAtspiActiveWindowKey(): string | null {
   } catch {
     return null
   }
+}
+
+const GNOME_BRIDGE_INTERFACE = "org.gnome.Shell.Extensions.OpenCodeNotifier"
+const GNOME_BRIDGE_PATH = "/org/gnome/Shell/Extensions/OpenCodeNotifier"
+
+function callGnomeBridge(method: "CaptureWindow" | "ActivateWindow", args: readonly string[] = []): string | null {
+  return execFileWithTimeout("gdbus", [
+    "call", "--session", "--dest", "org.gnome.Shell", "--object-path", GNOME_BRIDGE_PATH,
+    "--method", `${GNOME_BRIDGE_INTERFACE}.${method}`, ...args,
+  ], 1000)
+}
+
+function getGnomeShellWindowKey(): string | null {
+  const id = parseAtspiString(callGnomeBridge("CaptureWindow"))
+  return id && /^[0-9a-f-]{36}:\d+$/.test(id) ? `gnome:${id}` : null
+}
+
+export function isTerminalJumpBackSupported(): boolean {
+  if (isKDEJumpBackSupported()) return true
+  return process.platform === "linux" && !!process.env.WAYLAND_DISPLAY && isGnomeLikeSession()
+    && !!cachedWindowId?.startsWith("gnome:")
 }
 
 export function debugFocusState(message: string): void {
@@ -1148,6 +1169,11 @@ export async function focusTerminal(): Promise<void> {
 
   if (process.platform === "linux") {
     const env = process.env
+    if (env.WAYLAND_DISPLAY && isGnomeLikeSession(env) && cachedWindowId?.startsWith("gnome:")) {
+      const result = callGnomeBridge("ActivateWindow", [cachedWindowId.slice("gnome:".length)])
+      if (result !== "(true,)") debugFocusState("GNOME jump-back could not activate the captured window")
+      return
+    }
     
     // For KDE Plasma, use KWin script approach which works on both X11 and Wayland
     if (env.KDE_SESSION_VERSION) {
