@@ -154,7 +154,7 @@ export async function handleEvent(
       elapsedSeconds < minDuration)
 
   if (!shouldSkipCommand) {
-    runCommand(config, eventType, message, sessionTitle, agentName, projectName, timestamp, turn)
+    runCommand(config, eventType, message, sessionTitle, agentName, projectName, timestamp, turn, sessionID)
   }
 
   await Promise.allSettled(promises)
