@@ -147,7 +147,11 @@ export const NotifierPlugin: Plugin = async ({ client, directory }) => {
           if (type === "session.created") await notifier.created(info.id, info.parentID, info.title)
           else if (info.id) notifier.track(info.id, info.parentID)
         }
-        // Retain child tombstones when deleted sessions have a pending completion.
+        // Stop deleted work while retaining child tombstones for late idle events.
+        if (type === "session.deleted") {
+          const id = getSessionLifecycleInfo(event).id
+          if (id) await notifier.stopped(id)
+        }
         if (type === "permission.asked") {
           await notifier.permission(sessionID, getPermissionIDFromEvent(event), true)
         }

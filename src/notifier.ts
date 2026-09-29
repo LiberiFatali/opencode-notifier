@@ -30,6 +30,9 @@ export function createNotifier(access: SessionAccess, directory: string, deliver
   const errors = new Set<string>()
   const touched = new Map<string, number>()
   const idleTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  const parents = new Map<string, string>()
+  const running = new Set<string>()
+  const pending = new Map<string, { sequence: number; title: string | null; timer: ReturnType<typeof setTimeout> }>()
   let disposed = false
 
   function config(): NotifierConfig {
@@ -55,6 +58,9 @@ export function createNotifier(access: SessionAccess, directory: string, deliver
     sequences.set(sessionID, sequence)
     clearTimeout(idleTimers.get(sessionID))
     idleTimers.delete(sessionID)
+    const deferred = pending.get(sessionID)
+    if (deferred) clearTimeout(deferred.timer)
+    pending.delete(sessionID)
     return sequence
   }
 
@@ -82,7 +88,34 @@ export function createNotifier(access: SessionAccess, directory: string, deliver
 
   function track(sessionID: string, parentID?: string | null) {
     touched.set(sessionID, Date.now())
-    if (parentID) children.add(sessionID)
+    if (parentID) {
+      children.add(sessionID)
+      parents.set(sessionID, parentID)
+    }
+  }
+
+  function hasRunningChildren(parentID: string): boolean {
+    for (const id of running) {
+      const seen = new Set<string>([id])
+      let ancestor = parents.get(id)
+      while (ancestor && !seen.has(ancestor)) {
+        if (ancestor === parentID) return true
+        seen.add(ancestor)
+        ancestor = parents.get(ancestor)
+      }
+    }
+    return false
+  }
+
+  async function flushPending(): Promise<void> {
+    for (const [id, deferred] of pending) {
+      if (hasRunningChildren(id)) continue
+      pending.delete(id)
+      clearTimeout(deferred.timer)
+      if (!disposed && sequences.get(id) === deferred.sequence) {
+        await notify("complete", id, deferred.title)
+      }
+    }
   }
 
   async function complete(sessionID: string, sequence: number, now: number) {
@@ -96,6 +129,14 @@ export function createNotifier(access: SessionAccess, directory: string, deliver
     if (disposed || sequences.get(sessionID) !== sequence || errors.delete(sessionID)) return
     if (info.isChild === null) return
     if (info.isChild) children.add(sessionID)
+    const current = config()
+    if (!info.isChild && current.deferCompleteUntilChildrenIdle && hasRunningChildren(sessionID)) {
+      // Expiry drops the pending alert; it must not claim completion while work is still active.
+      const timer = setTimeout(() => pending.delete(sessionID), current.deferredCompleteTimeout)
+      timer.unref()
+      pending.set(sessionID, { sequence, title: info.title, timer })
+      return
+    }
     await notify(info.isChild ? "subagent_complete" : "complete", sessionID, info.title, now)
   }
 
@@ -104,11 +145,12 @@ export function createNotifier(access: SessionAccess, directory: string, deliver
     const cutoff = Date.now() - 5 * 60_000
     prunePermissionAlertState(cutoff)
     for (const [id, lastSeen] of touched) {
-      if (lastSeen >= cutoff || idleTimers.has(id)) continue
+      if (lastSeen >= cutoff || idleTimers.has(id) || running.has(id) || pending.has(id) || hasRunningChildren(id)) continue
       touched.delete(id)
       children.delete(id)
       sequences.delete(id)
       errors.delete(id)
+      parents.delete(id)
     }
   }, 5 * 60_000)
   cleanup.unref()
@@ -118,29 +160,43 @@ export function createNotifier(access: SessionAccess, directory: string, deliver
     track,
     async created(id: string | null, parentID: string | null, title: string | null) {
       if (id) track(id, parentID)
+      if (id && parentID) running.add(id)
       if (!parentID) await notify("session_started", id, title)
     },
     busy(id: string) {
       invalidate(id)
       errors.delete(id)
+      running.add(id)
     },
     async idle(id: string | null, immediate = true) {
       if (disposed) return
       if (!id) return notify("complete")
       const sequence = invalidate(id)
+      running.delete(id)
       const now = Date.now()
-      if (immediate) return complete(id, sequence, now)
+      if (immediate) {
+        await complete(id, sequence, now)
+        await flushPending()
+        return
+      }
       idleTimers.set(id, setTimeout(() => {
         idleTimers.delete(id)
-        void complete(id, sequence, now).catch(() => undefined)
+        void complete(id, sequence, now).then(flushPending).catch(() => undefined)
       }, IDLE_COMPLETE_DELAY_MS))
+    },
+    async stopped(id: string) {
+      invalidate(id)
+      running.delete(id)
+      await flushPending()
     },
     async failed(id: string | null, event: "error" | "user_cancelled") {
       if (id) {
         invalidate(id)
         errors.add(id)
+        running.delete(id)
       }
       await notify(event, id)
+      await flushPending()
     },
     async permission(id: string | null, requestID: string | null, legacyHook = false) {
       if (requestID) {
@@ -169,6 +225,10 @@ export function createNotifier(access: SessionAccess, directory: string, deliver
       sequences.clear()
       errors.clear()
       touched.clear()
+      for (const deferred of pending.values()) clearTimeout(deferred.timer)
+      pending.clear()
+      parents.clear()
+      running.clear()
     },
   }
 }

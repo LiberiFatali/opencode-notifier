@@ -453,6 +453,14 @@ With the above, if OpenCode finishes in under 10 seconds, no notification, sound
 
 This is independent of `command.minDuration`, which only controls whether the custom command runs.
 
+### Completion with child sessions
+
+Set `"deferCompleteUntilChildrenIdle": true` to wait for known child sessions before sending the parent's `complete` notification, sound, bell, or command. The default is `false`.
+
+The plugin tracks native OpenCode child sessions and their descendants from creation and execution events. It sends one parent completion after all tracked child work finishes, fails, is interrupted, or is deleted. A new parent run cancels the pending completion. Work from third-party delegation plugins without native child-session events, or work already running before the notifier loads, cannot be tracked reliably.
+
+`deferredCompleteTimeout` limits the wait in milliseconds, default `900000` (15 minutes). Expired pending alerts are dropped rather than reporting completion while work is still running.
+
 ### Platform support
 
 | Platform                                 | Method                                   | Requirements          | Status                         |

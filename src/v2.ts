@@ -78,7 +78,12 @@ export function createV2Notifier(client: Client, location: LocationRef, delivery
             // Shutdown, supersession and inactivity are not user cancellations or failures.
             if (event.data.reason === "user" && first(`cancelled:${event.id}`)) {
               await notifier.failed(event.data.sessionID, "user_cancelled")
+            } else if (event.data.reason !== "user" && first(`stopped:${event.id}`)) {
+              await notifier.stopped(event.data.sessionID)
             }
+            break
+          case "session.deleted":
+            await notifier.stopped(event.data.sessionID)
             break
           case "permission.asked":
             if (first(`permission:${event.data.id}`)) await notifier.permission(event.data.sessionID, event.data.id)
@@ -93,7 +98,6 @@ export function createV2Notifier(client: Client, location: LocationRef, delivery
               await notifier.notify("question", event.data.form.sessionID)
             }
             break
-          // session.deleted retains child identity for late completion events.
           // V2 has no plan_exit tool; changing agents is not a plan-ready signal.
         }
       } catch {

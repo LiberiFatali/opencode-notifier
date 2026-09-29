@@ -64,6 +64,8 @@ export interface NotifierConfig {
   linux: LinuxConfig
   windows: WindowsConfig
   minDuration: number
+  deferCompleteUntilChildrenIdle: boolean
+  deferredCompleteTimeout: number
   command: CommandConfig
   events: {
     permission: EventConfig
@@ -147,6 +149,8 @@ const DEFAULT_CONFIG: NotifierConfig = {
     appID: "opencode",
   },
   minDuration: 0,
+  deferCompleteUntilChildrenIdle: false,
+  deferredCompleteTimeout: 900_000,
   command: {
     enabled: false,
     path: "",
@@ -327,6 +331,11 @@ export function loadConfig(): NotifierConfig {
         typeof userConfig.minDuration === "number" && Number.isFinite(userConfig.minDuration) && userConfig.minDuration >= 0
           ? userConfig.minDuration
           : DEFAULT_CONFIG.minDuration,
+      deferCompleteUntilChildrenIdle: typeof userConfig.deferCompleteUntilChildrenIdle === "boolean"
+        ? userConfig.deferCompleteUntilChildrenIdle : DEFAULT_CONFIG.deferCompleteUntilChildrenIdle,
+      deferredCompleteTimeout: typeof userConfig.deferredCompleteTimeout === "number"
+        && Number.isFinite(userConfig.deferredCompleteTimeout) && userConfig.deferredCompleteTimeout > 0
+        ? Math.min(userConfig.deferredCompleteTimeout, 2_147_483_647) : DEFAULT_CONFIG.deferredCompleteTimeout,
       command: {
         enabled: typeof userCommand.enabled === "boolean" ? userCommand.enabled : DEFAULT_CONFIG.command.enabled,
         path: typeof userCommand.path === "string" ? userCommand.path : DEFAULT_CONFIG.command.path,
