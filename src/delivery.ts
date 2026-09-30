@@ -48,7 +48,8 @@ function incrementTurnCount(): number {
 
 function getNotificationTitle(config: NotifierConfig, context: MessageContext): string {
   if (config.notificationTitle !== null) {
-    return interpolateMessage(config.notificationTitle, context)
+    const title = interpolateMessage(config.notificationTitle, context)
+    if (title) return title
   }
   if (config.showProjectName && context.projectName) {
     return `OpenCode (${context.projectName})`
