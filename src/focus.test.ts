@@ -1,4 +1,5 @@
 import { describe, test, expect } from "bun:test"
+import { isZellijPaneFocused } from "./focus"
 import { isLinuxTerminalFocused, isMacTerminalAppFocused, isTmuxPaneFocused, parseWezTermFocusedPaneId, isKDEJumpBackSupported, captureStartupWindowId, focusTerminal, getCachedWindowTitle, isWindowsTerminalFocused, buildOsascriptActivateAppArgs, findQdbusBinary, resolveQdbusBinary, isGnomeLikeSession, getLinuxFocusBackendName, parseAtspiString, parseAtspiObjectRefs, parseAtspiStateActive, isAtspiTerminalWindow, isAtspiWindowRoleAccepted } from "./focus"
 
 describe("isMacTerminalAppFocused", () => {
@@ -81,6 +82,13 @@ describe("isTmuxPaneFocused", () => {
 })
 
 describe("isLinuxTerminalFocused", () => {
+  test("does not suppress alerts in an inactive Zellij pane of the focused window", () => {
+    expect(isLinuxTerminalFocused({
+      cachedWindowId: "123", currentWindowId: "123", wezTermPaneActive: true,
+      tmuxPaneActive: null, zellijPaneActive: false,
+    })).toBe(false)
+  })
+
   test("falls back to tmux pane state when window id is unavailable", () => {
     expect(
       isLinuxTerminalFocused({
@@ -123,6 +131,22 @@ describe("isLinuxTerminalFocused", () => {
         tmuxPaneActive: true,
       })
     ).toBe(false)
+  })
+})
+
+describe("Zellij pane focus", () => {
+  const clients = "CLIENT_ID ZELLIJ_PANE_ID RUNNING_COMMAND\n1 plugin_2 zellij:session-manager\n2 terminal_3 vim /tmp/a file.txt"
+  test("matches terminal IDs across clients without confusing plugin panes", () => {
+    expect(isZellijPaneFocused("3", clients)).toBe(true)
+    expect(isZellijPaneFocused("terminal_3", clients)).toBe(true)
+    expect(isZellijPaneFocused("2", clients)).toBe(false)
+    expect(isZellijPaneFocused("4", clients)).toBe(false)
+  })
+  test("failed queries, detached sessions and invalid IDs do not suppress", () => {
+    expect(isZellijPaneFocused("3", null)).toBe(false)
+    expect(isZellijPaneFocused("3", "CLIENT_ID ZELLIJ_PANE_ID RUNNING_COMMAND")).toBe(false)
+    expect(isZellijPaneFocused("3", "Error: session not found")).toBe(false)
+    expect(isZellijPaneFocused("plugin_2", clients)).toBe(false)
   })
 })
 

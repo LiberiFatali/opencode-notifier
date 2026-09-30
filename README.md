@@ -26,7 +26,7 @@ Restart OpenCode. The package contains both implementations; you do not select a
 
 Sounds, desktop popups, terminal bells, Ghostty notifications, and focus detection run in the terminal client. Custom commands run once per event on the server, including when no terminal is open. This uses the existing `command` configuration; no external notification service is bundled.
 
-With a remote server, put sound and popup settings on your local computer and custom-command settings on the server. Script paths refer to the server's filesystem. Focus suppression applies to local alerts, not server commands. Each attached terminal receives alerts for its project.
+With a remote server, put sound and popup settings on your local computer and custom-command settings on the server. Event-command script paths refer to the server's filesystem. Click-command paths refer to the computer displaying the notification. Focus suppression applies to local alerts, not server commands. Each attached terminal receives alerts for its project.
 
 `opencode run` and Desktop/Web clients do not load this terminal component, so they receive no plugin sound, popup, or bell. Server commands still run. V1 delivery and its `enableOnDesktop` behavior are unchanged.
 
@@ -98,6 +98,7 @@ Create `~/.config/opencode/opencode-notifier.json` with the defaults:
   "showIcon": true,
   "customIconPath": null,
   "suppressWhenFocused": true,
+  "focusOnClick": true,
   "enableOnDesktop": false,
   "notificationSystem": "osascript",
   "suppressGhosttySound": false,
@@ -327,7 +328,7 @@ Set per-event volume from `0` to `1`:
 
 ### Custom commands
 
-Run your own script when something happens. Use `{event}`, `{message}`, `{sessionTitle}`, `{sessionID}`, `{agentName}`, `{projectName}`, `{timestamp}`, and `{turn}` as placeholders:
+`command` runs a script when an event occurs. On V2 this runs on the server, even without a terminal attached. Use `{event}`, `{message}`, `{sessionTitle}`, `{sessionID}`, `{agentName}`, `{projectName}`, `{timestamp}`, and `{turn}` as placeholders:
 
 ```json
 {
@@ -353,6 +354,25 @@ inside a `sh -c`, `bash -c`, `powershell -Command`, or similar script string.
 Use a wrapper script and pass the tokens as separate arguments instead.
 Custom commands run with the same user permissions as OpenCode, so only enable
 scripts you trust.
+
+#### Run a command when clicking a notification
+
+`onClickCommand` runs locally when you activate a notification, separately from the event-time `command`. It is disabled by default. It accepts `enabled`, `path`, and `args` with the same placeholders. The arguments keep the originating notification's session context, even if you switch sessions before clicking.
+
+```json
+{
+  "focusOnClick": false,
+  "onClickCommand": {
+    "enabled": true,
+    "path": "/path/to/focus-opencode",
+    "args": ["{sessionID}", "{projectName}"]
+  }
+}
+```
+
+On Linux, use the explicit **Run command** action button; popup body clicks are not reliably delivered. The notification daemon must support actions and `notify-send` must support `--action`. The click listener expires after `timeout` plus one second. Windows toasts and macOS `node-notifier` deliver their activation callback; AppleScript and Ghostty OSC notifications do not support this command.
+
+`focusOnClick` defaults to `true` and enables the built-in KDE/GNOME jump-back when available. Set it to `false` for a script-only action. When both are enabled, clicking runs your script and focuses the terminal. On V2, configure click commands in the local terminal's configuration and event commands on the server. `events.<event>.command` controls event commands only; a click command is available for any enabled popup.
 
 #### Example: Log events to a file
 
@@ -453,6 +473,14 @@ With the above, if OpenCode finishes in under 10 seconds, no notification, sound
 
 This is independent of `command.minDuration`, which only controls whether the custom command runs.
 
+### Completion with child sessions
+
+Set `"deferCompleteUntilChildrenIdle": true` to wait for known child sessions before sending the parent's `complete` notification, sound, bell, or command. The default is `false`.
+
+The plugin tracks native OpenCode child sessions and their descendants from creation and execution events. It sends one parent completion after all tracked child work finishes, fails, is interrupted, or is deleted. A new parent run cancels the pending completion. Work from third-party delegation plugins without native child-session events, or work already running before the notifier loads, cannot be tracked reliably.
+
+`deferredCompleteTimeout` limits the wait in milliseconds, default `900000` (15 minutes). Expired pending alerts are dropped rather than reporting completion while work is still running.
+
 ### Platform support
 
 | Platform                                 | Method                                   | Requirements          | Status                         |
@@ -474,6 +502,8 @@ This is independent of `command.minDuration`, which only controls whether the cu
 **tmux/screen**: When running inside tmux, focus detection uses tmux pane state (`session_attached`, `window_active`, `pane_active`) via `tmux display-message`. This keeps suppression accurate when switching panes/windows/sessions. On Linux setups where window focus cannot be detected at all, tmux pane state is also used as a best-effort fallback. GNU Screen is not currently handled (falls back to always notifying).
 
 **WezTerm panes**: When running in WezTerm with `WEZTERM_PANE` set, focus suppression is pane-aware via `wezterm cli list-clients --format json`. This means notifications are shown when you switch to a different WezTerm pane/tab.
+
+**Zellij panes**: With `ZELLIJ_SESSION_NAME` and `ZELLIJ_PANE_ID` set, suppression also checks `zellij --session <name> action list-clients`. Switching away from the OpenCode pane or tab allows notifications even when the terminal window stays focused. With multiple clients, the pane counts as focused if any attached client focuses it. A missing tool, failed query, or detached session allows notifications. On Linux without window detection, pane focus is a best-effort fallback, as with tmux.
 
 **Fail-open design**: If detection fails for any reason (missing tools, unknown compositor, permissions), it falls back to always notifying. It never silently eats your notifications.
 
@@ -497,14 +527,36 @@ With grouping enabled, each new notification replaces the previous one so you on
 
 Works with all major notification daemons (GNOME, dunst, mako, swaync, etc.) on both X11 and Wayland.
 
-## KDE Plasma: Jump back to terminal from notification
+## Linux: Jump back to terminal from notification
 
-On KDE Plasma/Wayland, clicking the popup body is not consistently delivered as a notification activation event.This plugin uses an explicit notification action button instead:
+On KDE Plasma and GNOME Wayland, use the explicit **Jump to terminal** action button. Clicking the popup body is not reliably routed back to the plugin.
 
-- **Jump to terminal** (action button on the popup card, or in notification history)
+On KDE with `kdotool` installed, the plugin captures the startup terminal window ID and jumps back to that window.
 
-When clicked, the plugin runs its terminal-focus path. On KDE with `kdotool` installed, it auto-captures the startup terminal window ID and jumps back to that pinned window.
-The action button is only enabled on Linux KDE sessions where `kdotool` is available.
+On GNOME Wayland, the bundled **OpenCode Notifier Jump Back** Shell extension is needed **only for the Jump to terminal action**. Normal notification popups, sounds, and existing focus suppression work without it.
+
+A GNOME Shell extension is a small add-on to the GNOME desktop. This one remembers the terminal window where OpenCode started. When you press **Jump to terminal**, it asks GNOME to bring that exact window and its workspace forward. The existing focus detection can identify Ghostty but cannot activate its window on GNOME Wayland.
+
+Install the extension on the GNOME computer displaying the notifications. With a remote OpenCode server, this means your local desktop. Installing the OpenCode plugin does not automatically install this desktop extension.
+
+From this repository or the installed npm package directory, copy the extension files:
+
+```sh
+mkdir -p ~/.local/share/gnome-shell/extensions/opencode-notifier@mohak34.github.io
+cp gnome-shell-extension/extension.js gnome-shell-extension/metadata.json ~/.local/share/gnome-shell/extensions/opencode-notifier@mohak34.github.io/
+```
+
+Log out and back in so GNOME discovers the extension, then enable it:
+
+```sh
+gnome-extensions enable opencode-notifier@mohak34.github.io
+```
+
+Restart OpenCode while the terminal window you want to return to is focused. Leave `focusOnClick` enabled, its default setting, then use the notification's **Jump to terminal** button.
+
+The extension targets GNOME Shell 45 through 50. The button appears when the plugin successfully captured a startup window through the extension. Automated checks cover the extension logic and communication, but window switching still needs validation on a real GNOME desktop.
+
+Notification delivery returns once `notify-send` prints the notification ID. The click listener lasts for the configured notification `timeout` plus a one-second grace period, then closes even if the notification daemon ignores expiry.
 
 ## Updating
 

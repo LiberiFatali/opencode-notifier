@@ -16,7 +16,7 @@ import { sendNotification } from "./notify"
 import { playSound } from "./sound"
 import { ringBell } from "./bell"
 import { runCommand } from "./command"
-import { isTerminalFocused, focusTerminal, isKDEJumpBackSupported } from "./focus"
+import { isTerminalFocused, focusTerminal, isTerminalJumpBackSupported } from "./focus"
 
 let globalTurnCount: number | null = null
 
@@ -70,20 +70,14 @@ export function extractAgentNameFromSessionTitle(sessionTitle: unknown): string 
   return match ? match[1] : ""
 }
 
-export function shouldResolveAgentNameForEvent(config: NotifierConfig, eventType: EventType): boolean {
-  if (getMessage(config, eventType).includes("{agentName}")) {
-    return true
-  }
+export function shouldResolveSessionContextForEvent(config: NotifierConfig, eventType: EventType): boolean {
+  if (getMessage(config, eventType).includes("{agentName}")) return true
 
-  if (!config.command.enabled || !isEventCommandEnabled(config, eventType)) {
-    return false
-  }
-
-  if (config.command.path.includes("{agentName}")) {
-    return true
-  }
-
-  return (config.command.args ?? []).some((arg) => arg.includes("{agentName}"))
+  const commands = []
+  if (isEventNotificationEnabled(config, eventType)) commands.push(config.onClickCommand)
+  if (isEventCommandEnabled(config, eventType)) commands.push(config.command)
+  return commands.some(command => command.enabled && [command.path, ...(command.args ?? [])]
+    .some(value => value.includes("{agentName}") || value.includes("{sessionTitle}")))
 }
 
 export async function handleEvent(
@@ -126,8 +120,19 @@ export async function handleEvent(
   if (notificationEnabled) {
     const title = getNotificationTitle(config, projectName)
     const iconPath = getIconPath(config)
-    const onNotificationClick = isKDEJumpBackSupported() ? () => void focusTerminal() : undefined
-    promises.push(sendNotification(title, message, config.timeout, iconPath, config.notificationSystem, config.linux.grouping, onNotificationClick, config.windows.appID))
+    const focusOnClick = config.focusOnClick && isTerminalJumpBackSupported()
+    const clickCommand = config.onClickCommand
+    let clicked = false
+    const onNotificationClick = focusOnClick || (clickCommand.enabled && clickCommand.path) ? () => {
+      if (clicked) return
+      clicked = true
+      if (clickCommand.enabled) {
+        runCommand({ ...config, command: clickCommand }, eventType, message, sessionTitle, agentName, projectName, timestamp, turn, sessionID)
+      }
+      if (focusOnClick) void focusTerminal().catch(() => {})
+    } : undefined
+    promises.push(sendNotification(title, message, config.timeout, iconPath, config.notificationSystem, config.linux.grouping,
+      onNotificationClick, config.windows.appID, focusOnClick ? "Jump to terminal" : "Run command"))
   }
 
   if (isEventSoundEnabled(config, eventType)) {
@@ -159,4 +164,3 @@ export async function handleEvent(
 
   await Promise.allSettled(promises)
 }
-

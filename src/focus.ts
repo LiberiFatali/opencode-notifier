@@ -148,7 +148,7 @@ function getLinuxWaylandActiveWindowId(): string | null {
   if (env.NIRI_SOCKET) return getNiriActiveWindowId()
   if (env.SWAYSOCK) return getSwayActiveWindowId()
   if (env.KDE_SESSION_VERSION) return firstNumericWindowId(execWithTimeout("kdotool getactivewindow"))
-  if (isGnomeLikeSession(env)) return getGnomeAtspiActiveWindowKey()
+  if (isGnomeLikeSession(env)) return getGnomeShellWindowKey() ?? getGnomeAtspiActiveWindowKey()
   return null
 }
 
@@ -347,6 +347,27 @@ export function getGnomeAtspiActiveWindowKey(): string | null {
   }
 }
 
+const GNOME_BRIDGE_INTERFACE = "org.gnome.Shell.Extensions.OpenCodeNotifier"
+const GNOME_BRIDGE_PATH = "/org/gnome/Shell/Extensions/OpenCodeNotifier"
+
+function callGnomeBridge(method: "CaptureWindow" | "ActivateWindow", args: readonly string[] = []): string | null {
+  return execFileWithTimeout("gdbus", [
+    "call", "--session", "--dest", "org.gnome.Shell", "--object-path", GNOME_BRIDGE_PATH,
+    "--method", `${GNOME_BRIDGE_INTERFACE}.${method}`, ...args,
+  ], 1000)
+}
+
+function getGnomeShellWindowKey(): string | null {
+  const id = parseAtspiString(callGnomeBridge("CaptureWindow"))
+  return id && /^[0-9a-f-]{36}:\d+$/.test(id) ? `gnome:${id}` : null
+}
+
+export function isTerminalJumpBackSupported(): boolean {
+  if (isKDEJumpBackSupported()) return true
+  return process.platform === "linux" && !!process.env.WAYLAND_DISPLAY && isGnomeLikeSession()
+    && !!cachedWindowId?.startsWith("gnome:")
+}
+
 export function debugFocusState(message: string): void {
   if (process.env.OPENCODE_NOTIFIER_DEBUG) {
     console.error(`[opencode-notifier] ${message}`)
@@ -529,17 +550,38 @@ export function isTmuxPaneFocused(tmuxPane: string | null | undefined, probeResu
   return Number(sessionAttached) > 0 && windowActive === "1" && paneActive === "1"
 }
 
+export function isZellijPaneFocused(paneID: string | null | undefined, clientsOutput: string | null): boolean {
+  if (!paneID || !clientsOutput) return false
+  const match = /^(?:terminal_)?(\d+)$/.exec(paneID)
+  if (!match) return false
+  const target = `terminal_${match[1]}`
+  return clientsOutput.split(/\r?\n/).some(line => {
+    const fields = line.trim().split(/\s+/)
+    return /^\d+$/.test(fields[0]) && fields[1] === target
+  })
+}
+
+function isZellijPaneActive(): boolean {
+  const session = process.env.ZELLIJ_SESSION_NAME
+  const pane = process.env.ZELLIJ_PANE_ID
+  if (!session || !pane) return false
+  return isZellijPaneFocused(pane, execFileWithTimeout("zellij", ["--session", session, "action", "list-clients"], 1000))
+}
+
 export function isLinuxTerminalFocused(params: {
   cachedWindowId: string | null
   currentWindowId: string | null
   wezTermPaneActive: boolean
   tmuxPaneActive: boolean | null
+  zellijPaneActive?: boolean | null
 }): boolean {
-  const { cachedWindowId, currentWindowId, wezTermPaneActive, tmuxPaneActive } = params
+  const { cachedWindowId, currentWindowId, wezTermPaneActive, tmuxPaneActive, zellijPaneActive } = params
+  if (zellijPaneActive === false) return false
 
   if (!cachedWindowId) {
     if (!wezTermPaneActive) return false
     if (tmuxPaneActive !== null) return tmuxPaneActive
+    if (zellijPaneActive != null) return zellijPaneActive
     return false
   }
 
@@ -577,6 +619,8 @@ function isWezTermPaneActive(): boolean {
 
 export function isTerminalFocused(): boolean {
   try {
+    const zellijPaneActive = process.env.ZELLIJ_SESSION_NAME || process.env.ZELLIJ_PANE_ID ? isZellijPaneActive() : null
+    if (zellijPaneActive === false) return false
     if (process.platform === "darwin") {
       const frontmostAppName = getMacOSFrontmostAppName()
       if (!isMacTerminalAppFocused(frontmostAppName, process.env)) {
@@ -606,9 +650,10 @@ export function isTerminalFocused(): boolean {
       currentWindowId,
       wezTermPaneActive: isWezTermPaneActive(),
       tmuxPaneActive,
+      zellijPaneActive,
     })
     debugFocusState(
-      `linux focus: backend=${getLinuxFocusBackendName()} session=${process.env.XDG_SESSION_TYPE ?? "?"} desktop=${process.env.XDG_CURRENT_DESKTOP ?? process.env.DESKTOP_SESSION ?? "?"} cached=${cachedWindowId ?? "null"} current=${currentWindowId ?? "null"} tmux=${String(tmuxPaneActive)} focused=${focused}`
+      `linux focus: backend=${getLinuxFocusBackendName()} session=${process.env.XDG_SESSION_TYPE ?? "?"} desktop=${process.env.XDG_CURRENT_DESKTOP ?? process.env.DESKTOP_SESSION ?? "?"} cached=${cachedWindowId ?? "null"} current=${currentWindowId ?? "null"} tmux=${String(tmuxPaneActive)} zellij=${String(zellijPaneActive)} focused=${focused}`
     )
     return focused
   } catch {
@@ -1124,6 +1169,11 @@ export async function focusTerminal(): Promise<void> {
 
   if (process.platform === "linux") {
     const env = process.env
+    if (env.WAYLAND_DISPLAY && isGnomeLikeSession(env) && cachedWindowId?.startsWith("gnome:")) {
+      const result = callGnomeBridge("ActivateWindow", [cachedWindowId.slice("gnome:".length)])
+      if (result !== "(true,)") debugFocusState("GNOME jump-back could not activate the captured window")
+      return
+    }
     
     // For KDE Plasma, use KWin script approach which works on both X11 and Wayland
     if (env.KDE_SESSION_VERSION) {
