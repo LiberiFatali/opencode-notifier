@@ -4,6 +4,43 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-30
+
+### Added
+
+- Zellij pane-aware focus suppression, including sessions with multiple attached clients (#126; issue #95).
+- Optional `deferCompleteUntilChildrenIdle` and `deferredCompleteTimeout` settings to delay one parent completion until known native child sessions and descendants finish (#126; issue #87).
+- GNOME Wayland **Jump to terminal** action through the bundled OpenCode Notifier Jump Back Shell extension (#126; issue #106).
+- `onClickCommand` to run a local script when a notification is activated, with the originating session context. `focusOnClick` controls built-in jump-back separately (#126; issue #97).
+- `{sessionID}` placeholder for custom command paths and arguments (#124).
+
+### Fixed
+
+- V1 question and plan-ready commands receive their triggering session ID.
+- Linux notification delivery finishes when the notification ID is returned, while the click listener remains active for the configured timeout plus one second.
+- Duplicate and close notification actions do not rerun click commands.
+- Command test fixtures use the running executable for platform portability. The terminal-focus smoke test skips macOS to avoid stealing focus during tests (#125).
+
+### Upgrade notes
+
+- `deferCompleteUntilChildrenIdle` and `onClickCommand` are disabled by default. Existing behavior stays unchanged until enabled.
+- Child completion tracking covers native OpenCode session lifecycle events. Third-party delegation without those events and work already running when the plugin starts cannot be tracked reliably. Pending completions are dropped at timeout.
+- The GNOME Shell extension is required only for **Jump to terminal**. Normal popups, sounds, and existing focus suppression work without it. Install and enable it on the GNOME computer displaying the notification, then restart OpenCode while the intended terminal is focused. See the README installation instructions.
+- The extension targets GNOME Shell 45 through 50. Its logic and communication passed automated checks; live GNOME desktop window switching still needs validation.
+- Linux notification actions use an explicit button. macOS click commands require `node-notifier`; AppleScript and Ghostty OSC notifications do not provide click callbacks.
+- On V2, click commands run in the local terminal component. Event commands continue to run on the server.
+- `0.5.0` and `0.5.0-beta.0` contain the same implementation and differ only in the package version. They publish to npm's `latest` and `beta` dist-tags respectively.
+
+### Contributors
+
+- Thanks to @pedropombeiro for the `{sessionID}` placeholder and macOS focus-test fix in #124 and #125.
+
+## [0.5.0-beta.0] - 2026-09-30
+
+### Added
+
+- Same implementation as v0.5.0, with the prerelease package version for npm’s `beta` dist-tag.
+
 ## [0.4.1-beta.0] - 2026-09-28
 
 ### Added
