@@ -52,6 +52,7 @@ export interface NotifierConfig {
   notification: boolean
   bell: boolean
   timeout: number
+  notificationTitle: string | null
   showProjectName: boolean
   showFullPath: boolean
   showSessionTitle: boolean
@@ -135,6 +136,7 @@ const DEFAULT_CONFIG: NotifierConfig = {
   notification: true,
   bell: false,
   timeout: 5,
+  notificationTitle: null,
   showProjectName: true,
   showFullPath: false,
   showSessionTitle: false,
@@ -308,6 +310,9 @@ export function loadConfig(): NotifierConfig {
         typeof userConfig.timeout === "number" && userConfig.timeout > 0
           ? userConfig.timeout
           : DEFAULT_CONFIG.timeout,
+      notificationTitle: typeof userConfig.notificationTitle === "string" && userConfig.notificationTitle.trim().length > 0
+        ? userConfig.notificationTitle
+        : DEFAULT_CONFIG.notificationTitle,
       showProjectName: userConfig.showProjectName ?? DEFAULT_CONFIG.showProjectName,
       showFullPath: userConfig.showFullPath ?? DEFAULT_CONFIG.showFullPath,
       showSessionTitle: userConfig.showSessionTitle ?? DEFAULT_CONFIG.showSessionTitle,

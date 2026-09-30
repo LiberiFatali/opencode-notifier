@@ -6,6 +6,37 @@ import { delimiter, join } from "path"
 const fixtureRoot = mkdtempSync(join(tmpdir(), "notifier-click-command-test-"))
 afterAll(() => rmSync(fixtureRoot, { recursive: true, force: true }))
 
+test("configured notification titles reach the popup backend", async () => {
+  const directory = mkdtempSync(join(fixtureRoot, "title-"))
+  const configPath = join(directory, "config.json")
+  const configModule = join(import.meta.dir, "config.ts")
+  const deliveryModule = join(import.meta.dir, "delivery.ts")
+  const notifierModule = join(import.meta.dir, "notifier.ts")
+  const script = `
+    const { writeFileSync } = await import("node:fs")
+    const { loadConfig } = await import(${JSON.stringify(configModule)})
+    const { handleEvent } = await import(${JSON.stringify(deliveryModule)})
+    const { createNotifier } = await import(${JSON.stringify(notifierModule)})
+    for (const [index, options] of [{}, { showProjectName: false }, { notificationTitle: "{projectName}: {sessionTitle} ({agentName}) #{turn} at {timestamp}", showProjectName: false, showSessionTitle: true }, { notificationTitle: "My Assistant" }].entries()) {
+      writeFileSync(${JSON.stringify(configPath)}, JSON.stringify({ ...options, sound: false, suppressWhenFocused: false, focusOnClick: false, showIcon: false, notificationSystem: "ghostty", command: { enabled: false }, messages: { question: "Question " + index } }))
+      await handleEvent(loadConfig(), "question", "my-project", null, "Fix login", "ses_title", "build")
+    }
+    writeFileSync(${JSON.stringify(configPath)}, JSON.stringify({ notificationTitle: "{sessionTitle} by {agentName}", showSessionTitle: true, sound: false, suppressWhenFocused: false, focusOnClick: false, showIcon: false, notificationSystem: "ghostty", command: { enabled: false }, messages: { question: "Question 4" } }))
+    const notifier = createNotifier({ info: async () => ({ isChild: false, title: "From lookup", agentName: "builder" }), elapsed: async () => null, permissionPending: async () => true }, "/workspace/my-project", "terminal")
+    await notifier.notify("question", "ses_title")
+    notifier.dispose()
+  `
+  const child = Bun.spawn([process.execPath, "--eval", script], {
+    env: { ...process.env, OPENCODE_NOTIFIER_CONFIG_PATH: configPath },
+    stdout: "pipe", stderr: "pipe",
+  })
+  const errors = await new Response(child.stderr).text()
+  expect(await child.exited, errors).toBe(0)
+  expect(await new Response(child.stdout).text()).toMatch(
+    /^\x1b\]9;OpenCode \(my-project\): Question 0\x07\x1b\]9;OpenCode: Question 1\x07\x1b\]9;my-project: Fix login \(build\) #3 at \d{2}:\d{2}:\d{2}: Question 2\x07\x1b\]9;My Assistant: Question 3\x07\x1b\]9;From lookup by builder: Question 4\x07$/
+  )
+})
+
 for (const scenario of [
   { name: "click commands retain session context and run once on an explicit action", enabled: true, actions: "focus-terminal\nfocus-terminal\nclose", runs: true },
   { name: "closing a notification does not run its click command", enabled: true, actions: "close", runs: false },

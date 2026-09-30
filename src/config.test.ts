@@ -51,6 +51,7 @@ describe("Config", () => {
     expect(config.notification).toBe(true)
     expect(config.bell).toBe(false)
     expect(config.timeout).toBe(5)
+    expect(config.notificationTitle).toBeNull()
     expect(config.showProjectName).toBe(true)
     expect(config.showIcon).toBe(true)
     expect(config.notificationSystem).toBe("osascript")
@@ -101,6 +102,17 @@ describe("Config", () => {
     expect(config.sound).toBe(false)
     expect(config.notification).toBe(true) // default
     expect(config.timeout).toBe(5) // default
+  })
+
+  test("loadConfig accepts a title template and falls back for invalid values", async () => {
+    const { loadConfig } = await import("./config")
+    writeFileSync(testConfigPath, JSON.stringify({ notificationTitle: "{projectName}: {sessionTitle}" }))
+    expect(loadConfig().notificationTitle).toBe("{projectName}: {sessionTitle}")
+
+    for (const notificationTitle of ["", "  ", 42, null]) {
+      writeFileSync(testConfigPath, JSON.stringify({ notificationTitle }))
+      expect(loadConfig().notificationTitle).toBeNull()
+    }
   })
 
   test("loadConfig handles invalid JSON gracefully", async () => {

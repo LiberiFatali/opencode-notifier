@@ -11,7 +11,7 @@ import {
   interpolateMessage,
   getStatePath,
 } from "./config"
-import type { EventType, NotifierConfig } from "./config"
+import type { EventType, MessageContext, NotifierConfig } from "./config"
 import { sendNotification } from "./notify"
 import { playSound } from "./sound"
 import { ringBell } from "./bell"
@@ -46,9 +46,12 @@ function incrementTurnCount(): number {
   return globalTurnCount
 }
 
-function getNotificationTitle(config: NotifierConfig, projectName: string | null): string {
-  if (config.showProjectName && projectName) {
-    return `OpenCode (${projectName})`
+function getNotificationTitle(config: NotifierConfig, context: MessageContext): string {
+  if (config.notificationTitle !== null) {
+    return interpolateMessage(config.notificationTitle, context)
+  }
+  if (config.showProjectName && context.projectName) {
+    return `OpenCode (${context.projectName})`
   }
   return "OpenCode"
 }
@@ -72,6 +75,9 @@ export function extractAgentNameFromSessionTitle(sessionTitle: unknown): string 
 
 export function shouldResolveSessionContextForEvent(config: NotifierConfig, eventType: EventType): boolean {
   if (getMessage(config, eventType).includes("{agentName}")) return true
+
+  if (isEventNotificationEnabled(config, eventType) && config.notificationTitle &&
+      (config.notificationTitle.includes("{agentName}") || config.notificationTitle.includes("{sessionTitle}"))) return true
 
   const commands = []
   if (isEventNotificationEnabled(config, eventType)) commands.push(config.onClickCommand)
@@ -108,17 +114,18 @@ export async function handleEvent(
   const turn = incrementTurnCount()
 
   const rawMessage = getMessage(config, eventType)
-  const message = interpolateMessage(rawMessage, {
+  const context: MessageContext = {
     sessionTitle: config.showSessionTitle ? sessionTitle : null,
     agentName,
     projectName,
     timestamp,
     turn,
-  })
+  }
+  const message = interpolateMessage(rawMessage, context)
 
   const notificationEnabled = isEventNotificationEnabled(config, eventType)
   if (notificationEnabled) {
-    const title = getNotificationTitle(config, projectName)
+    const title = getNotificationTitle(config, context)
     const iconPath = getIconPath(config)
     const focusOnClick = config.focusOnClick && isTerminalJumpBackSupported()
     const clickCommand = config.onClickCommand
