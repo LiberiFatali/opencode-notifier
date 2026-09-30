@@ -533,22 +533,30 @@ On KDE Plasma and GNOME Wayland, use the explicit **Jump to terminal** action bu
 
 On KDE with `kdotool` installed, the plugin captures the startup terminal window ID and jumps back to that window.
 
-GNOME Wayland requires the bundled **OpenCode Notifier Jump Back** Shell extension. GTK4 does not implement AT-SPI `GrabFocus`, so focus detection alone cannot activate a Ghostty window. The extension captures a window ID scoped to its current lifetime and uses GNOME Shell's window activation API to select the exact window and workspace.
+On GNOME Wayland, the bundled **OpenCode Notifier Jump Back** Shell extension is needed **only for the Jump to terminal action**. Normal notification popups, sounds, and existing focus suppression work without it.
 
-From this repository or the installed npm package directory, install the extension files:
+A GNOME Shell extension is a small add-on to the GNOME desktop. This one remembers the terminal window where OpenCode started. When you press **Jump to terminal**, it asks GNOME to bring that exact window and its workspace forward. The existing focus detection can identify Ghostty but cannot activate its window on GNOME Wayland.
+
+Install the extension on the GNOME computer displaying the notifications. With a remote OpenCode server, this means your local desktop. Installing the OpenCode plugin does not automatically install this desktop extension.
+
+From this repository or the installed npm package directory, copy the extension files:
 
 ```sh
 mkdir -p ~/.local/share/gnome-shell/extensions/opencode-notifier@mohak34.github.io
 cp gnome-shell-extension/extension.js gnome-shell-extension/metadata.json ~/.local/share/gnome-shell/extensions/opencode-notifier@mohak34.github.io/
 ```
 
-Log out and back in so Shell discovers the extension, then enable it and restart OpenCode in the target terminal:
+Log out and back in so GNOME discovers the extension, then enable it:
 
 ```sh
 gnome-extensions enable opencode-notifier@mohak34.github.io
 ```
 
-The extension targets GNOME Shell 45 through 50. The action appears when the bridge captured a startup window; without it, existing AT-SPI focus suppression still works. GNOME jump-back needs validation on a real desktop. Notification delivery returns once `notify-send` prints the notification ID. The click listener lasts for the configured notification `timeout` plus a one-second grace period, then closes even if the notification daemon ignores expiry.
+Restart OpenCode while the terminal window you want to return to is focused. Leave `focusOnClick` enabled, its default setting, then use the notification's **Jump to terminal** button.
+
+The extension targets GNOME Shell 45 through 50. The button appears when the plugin successfully captured a startup window through the extension. Automated checks cover the extension logic and communication, but window switching still needs validation on a real GNOME desktop.
+
+Notification delivery returns once `notify-send` prints the notification ID. The click listener lasts for the configured notification `timeout` plus a one-second grace period, then closes even if the notification daemon ignores expiry.
 
 ## Updating
 
