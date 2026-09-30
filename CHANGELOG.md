@@ -4,6 +4,35 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-30
+
+### Added
+
+- `notificationTitle` to customize the entire popup title with `{projectName}`, `{sessionTitle}`, `{agentName}`, `{timestamp}`, and `{turn}` placeholders on OpenCode 1 and 2 (#128; issue #127).
+
+### Fixed
+
+- Custom title templates that become empty after interpolation fall back to the default title, including when session titles are disabled or session context is unavailable.
+
+### Documentation
+
+- Corrected V1/V2 update instructions, WSL configuration and fallback guidance, and sound, bell, focus, and platform option descriptions in the README.
+
+### Upgrade notes
+
+- Leaving `notificationTitle` unset preserves the existing `OpenCode (<project>)` or `OpenCode` title. A nonempty custom title overrides `showProjectName`; `{sessionTitle}` still requires `showSessionTitle: true`.
+- `0.6.0` and `0.6.0-beta.0` contain the same implementation and differ only in the package version. They publish to npm's `latest` and `beta` dist-tags respectively.
+
+### Contributors
+
+- Thanks to @cardin for configurable notification title templates in #128.
+
+## [0.6.0-beta.0] - 2026-09-30
+
+### Added
+
+- Same implementation as v0.6.0, with the prerelease package version for npm's `beta` dist-tag.
+
 ## [0.5.0] - 2026-09-30
 
 ### Added
